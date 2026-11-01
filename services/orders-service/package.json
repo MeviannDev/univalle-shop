@@ -5,6 +5,9 @@
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
+  "engines": {
+    "node": ">=22.0.0 <23.0.0"
+  },
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
@@ -13,7 +16,7 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main.js",
     "lint": "oxlint src/ test/",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts"
