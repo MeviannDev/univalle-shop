@@ -6,6 +6,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { Login } from '../../../../../application/use-cases/login.js';
 import { VerifyEmail } from '../../../../../application/use-cases/verify-email.js';
 import { RegisterUser } from '../../../../../../users/application/use-cases/register-user.js';
@@ -14,6 +15,7 @@ import { RegisterUserDto } from '../dto/register-user.dto.js';
 import { VerifyEmailDto } from '../dto/verify-email.dto.js';
 
 @Controller('auth')
+@ApiTags('Autenticación')
 export class AuthController {
   constructor(
     private readonly registerUser: RegisterUser,

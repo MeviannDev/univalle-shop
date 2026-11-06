@@ -54,6 +54,7 @@ describe('Users service authentication (e2e)', () => {
       })
       .expect(201);
     expect(registration.body).toMatchObject({ status: 'PENDING_VERIFICATION' });
+    expect(registration.body).not.toHaveProperty('verificationUrl');
     expect(verificationLinks).toHaveLength(1);
     await request(app.getHttpServer())
       .post('/auth/register')
@@ -75,11 +76,11 @@ describe('Users service authentication (e2e)', () => {
       .expect(401)
       .expect(({ body }) => expect(body.message).toBe('Invalid credentials'));
 
-    const token = new URL(verificationLinks[0]!).searchParams.get('token');
+    const verificationUrl = new URL(verificationLinks[0]!);
+    const token = verificationUrl.searchParams.get('token');
     await request(app.getHttpServer())
-      .post('/auth/verify-email')
-      .send({ token })
-      .expect(201, { verified: true });
+      .get(`${verificationUrl.pathname}${verificationUrl.search}`)
+      .expect(200, { verified: true });
     await request(app.getHttpServer())
       .post('/auth/verify-email')
       .send({ token })

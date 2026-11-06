@@ -60,12 +60,19 @@ class FakeEmailSender implements EmailSender {
 }
 
 describe('Auth use cases', () => {
-  it('registers pending customers and activates them only with a valid verification token', async () => {
+  it('emails a verification link without returning the verification token to the client', async () => {
     const repository = new InMemoryUserRepository();
     const hasher = new FakeHasher();
     const tokens = new FakeTokens();
     const sender = new FakeEmailSender();
-    const register = new RegisterUser(repository, hasher, tokens, sender);
+    const register = new RegisterUser(
+      repository,
+      hasher,
+      tokens,
+      sender,
+      'correounivalle.edu.co',
+      'http://localhost:3002',
+    );
 
     const result = await register.execute({
       email: 'ada@correounivalle.edu.co',
@@ -76,8 +83,11 @@ describe('Auth use cases', () => {
     });
 
     expect(result.status).toBe('PENDING_VERIFICATION');
+    expect(result).not.toHaveProperty('verificationUrl');
+    expect(sender.links[0]).toMatch(
+      /^http:\/\/localhost:3002\/auth\/verify-email\?token=verify%3A/,
+    );
     expect(sender.links).toHaveLength(1);
-    expect(sender.links[0]).toContain('/auth/verify-email?token=');
     const user = await repository.findByEmail('ada@correounivalle.edu.co');
     expect(user?.role).toBe('CUSTOMER');
     expect(user?.passwordHash).not.toContain('Univalle1!');
@@ -103,13 +113,14 @@ describe('Auth use cases', () => {
     const sender = new FakeEmailSender();
     const register = new RegisterUser(repository, hasher, tokens, sender);
 
-    await register.execute({
+    const registration = await register.execute({
       email: 'ada@correounivalle.edu.co',
       firstName: 'Ada',
       lastName: 'Lovelace',
       password: 'Univalle1!',
       vinculationType: 'ESTUDIANTE',
     });
+    expect(registration).not.toHaveProperty('verificationUrl');
     await expect(
       new Login(repository, hasher, tokens).execute(
         'ada@correounivalle.edu.co',

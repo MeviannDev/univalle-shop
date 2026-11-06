@@ -195,7 +195,18 @@ export class User {
     const current = this.data.addresses[index];
     if (!current)
       throw new NotFoundError('Address not found', 'ADDRESS_NOT_FOUND');
-    const updated = Address.create({ ...current, ...changes, id });
+    const updated = Address.create({
+      id,
+      street: changes.street === undefined ? current.street : changes.street,
+      city: changes.city === undefined ? current.city : changes.city,
+      department:
+        changes.department === undefined
+          ? current.department
+          : changes.department,
+      phone: changes.phone === undefined ? current.phone : changes.phone,
+      isDefault:
+        changes.isDefault === undefined ? current.isDefault : changes.isDefault,
+    });
     this.data.addresses[index] = updated.toData();
     if (updated.isDefault) {
       this.makeOnlyAddressDefault(id);

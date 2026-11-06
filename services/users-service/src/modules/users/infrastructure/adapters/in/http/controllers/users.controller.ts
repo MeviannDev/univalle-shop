@@ -8,6 +8,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../../../../../../common/decorators/current-user.decorator.js';
 import { Roles } from '../../../../../../../common/decorators/roles.decorator.js';
 import type { AccessTokenClaims } from '../../../../../../auth/domain/ports/token.service.js';
@@ -30,6 +31,8 @@ import { ChangeUserRoleDto, UpdateUserStatusDto } from '../dto/admin.dto.js';
 import { UpdateProfileDto } from '../dto/update-profile.dto.js';
 
 @Controller('users')
+@ApiTags('Usuarios')
+@ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class UsersController {
   constructor(

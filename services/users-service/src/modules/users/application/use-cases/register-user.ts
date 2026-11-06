@@ -10,6 +10,11 @@ import { EmailSender } from '../../../auth/domain/ports/email.sender.js';
 import { TokenService } from '../../../auth/domain/ports/token.service.js';
 import { RegisterUserCommand } from '../dto/user-commands.js';
 
+export interface RegisterUserResult {
+  id: string;
+  status: string;
+}
+
 export class RegisterUser {
   constructor(
     private readonly users: UserRepository,
@@ -17,12 +22,10 @@ export class RegisterUser {
     private readonly tokens: TokenService,
     private readonly emailSender: EmailSender,
     private readonly institutionalDomain = 'correounivalle.edu.co',
-    private readonly verificationBaseUrl = 'http://localhost:3002',
+    private readonly verificationServiceUrl = 'http://localhost:3002',
   ) {}
 
-  async execute(
-    command: RegisterUserCommand,
-  ): Promise<{ id: string; status: string }> {
+  async execute(command: RegisterUserCommand): Promise<RegisterUserResult> {
     const email = Email.create(command.email, this.institutionalDomain);
     if (await this.users.findByEmail(email.value))
       throw new ConflictError('Email is already registered');
@@ -45,9 +48,12 @@ export class RegisterUser {
       email: user.email,
       purpose: 'email-verification',
     });
-    const verificationUrl = `${this.verificationBaseUrl.replace(/\/$/, '')}/auth/verify-email?token=${encodeURIComponent(token)}`;
+    const verificationUrl = `${this.verificationServiceUrl.replace(/\/$/, '')}/auth/verify-email?token=${encodeURIComponent(token)}`;
     await this.emailSender.sendVerificationEmail(user.email, verificationUrl);
 
-    return { id: user.id, status: user.status };
+    return {
+      id: user.id,
+      status: user.status,
+    };
   }
 }

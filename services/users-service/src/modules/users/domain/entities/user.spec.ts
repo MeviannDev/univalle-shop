@@ -65,6 +65,25 @@ describe('User domain', () => {
     expect(user.addresses[0]?.isDefault).toBe(true);
   });
 
+  it('updates only provided address fields', () => {
+    const user = createPendingUser();
+    user.addAddress(createAddress('address-1', true));
+
+    user.updateAddress('address-1', {
+      street: 'Calle 14 # 100-00',
+      city: undefined,
+    });
+
+    expect(user.addresses[0]).toEqual({
+      id: 'address-1',
+      street: 'Calle 14 # 100-00',
+      city: 'Cali',
+      department: 'Valle del Cauca',
+      phone: '+57 300 1234567',
+      isDefault: true,
+    });
+  });
+
   it('enforces the maximum of five addresses', () => {
     const user = createPendingUser();
     for (let index = 0; index < 5; index += 1) {
