@@ -1,0 +1,50 @@
+@baseUrl = http://localhost:3002
+@email = estudiante@correounivalle.edu.co
+@password = Valle2026!
+@firstName = Ana
+@lastName = Valencia
+@vinculationType = ESTUDIANTE
+@verificationToken = pega-aqui-el-token-del-enlace-en-los-logs
+@accessToken = {{login.response.body.accessToken}}
+
+### Registrar usuario (siempre CUSTOMER y PENDING_VERIFICATION)
+# @name register
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "firstName": "{{firstName}}",
+  "lastName": "{{lastName}}",
+  "password": "{{password}}",
+  "vinculationType": "{{vinculationType}}"
+}
+
+### Verificar correo
+# Copia el token del enlace impreso en los logs de users-service.
+# Este token verifica el correo; no es el access token de la sesión.
+POST {{baseUrl}}/auth/verify-email
+Content-Type: application/json
+
+{
+  "token": "{{verificationToken}}"
+}
+
+### Iniciar sesión
+# @name login
+# Después de verificar el correo, ejecuta esto. La respuesta incluye accessToken.
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### Verificar correo abriendo el enlace (alternativa al POST)
+# Sustituye el valor por el token completo del enlace de verificación.
+GET {{baseUrl}}/auth/verify-email?token={{verificationToken}}
+
+### Ejemplo de endpoint protegido (usa el accessToken de la respuesta login)
+GET {{baseUrl}}/users/me
+Authorization: Bearer {{accessToken}}

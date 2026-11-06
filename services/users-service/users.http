@@ -1,0 +1,94 @@
+@baseUrl = http://localhost:3002
+# Pega aquí accessToken de la respuesta a POST /auth/login en auth.http.
+@accessToken = pega-aqui-el-accessToken-de-login
+@addressId = pega-aqui-el-id-de-la-direccion
+@userId = pega-aqui-el-id-del-usuario
+
+### Obtener mi perfil
+GET {{baseUrl}}/users/me
+Authorization: Bearer {{accessToken}}
+
+### Actualizar mi perfil
+PATCH {{baseUrl}}/users/me
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "firstName": "Ana María",
+  "lastName": "Valencia",
+  "vinculationType": "ESTUDIANTE"
+}
+
+### Cambiar mi contraseña
+PATCH {{baseUrl}}/users/me/password
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "currentPassword": "Valle2026!",
+  "newPassword": "ValleNuevo2026!"
+}
+
+### Agregar dirección
+# Copia el id de la dirección de la respuesta para usarlo en @addressId.
+# @name addAddress
+POST {{baseUrl}}/users/me/addresses
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "street": "Calle 13 # 100-00",
+  "city": "Cali",
+  "department": "Valle del Cauca",
+  "phone": "+57 300 1234567",
+  "isDefault": true
+}
+
+### Actualizar dirección
+PATCH {{baseUrl}}/users/me/addresses/{{addressId}}
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "street": "Calle 14 # 100-00",
+  "phone": "+57 300 1234567"
+}
+
+### Marcar dirección como predeterminada
+PATCH {{baseUrl}}/users/me/addresses/{{addressId}}/default
+Authorization: Bearer {{accessToken}}
+
+### Eliminar dirección
+DELETE {{baseUrl}}/users/me/addresses/{{addressId}}
+Authorization: Bearer {{accessToken}}
+
+### Listar usuarios (requiere token ADMIN)
+GET {{baseUrl}}/users
+Authorization: Bearer {{accessToken}}
+
+### Suspender usuario (requiere token ADMIN)
+PATCH {{baseUrl}}/users/{{userId}}/status
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "status": "SUSPENDED"
+}
+
+### Reactivar usuario suspendido (requiere token ADMIN)
+PATCH {{baseUrl}}/users/{{userId}}/status
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "status": "ACTIVE"
+}
+
+### Cambiar rol de usuario (requiere token ADMIN)
+PATCH {{baseUrl}}/users/{{userId}}/role
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "role": "CUSTOMER"
+}
