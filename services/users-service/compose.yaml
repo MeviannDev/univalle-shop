@@ -1,0 +1,49 @@
+services:
+  mongodb:
+    image: mongo:8
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${MONGODB_HOST_PORT:-27018}:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+
+  users-service:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    ports:
+      - "127.0.0.1:3002:3002"
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3002
+      JWT_SECRET: ${JWT_SECRET:-local-only-change-this-secret-before-deploy-32}
+      MONGODB_URI: mongodb://mongodb:27017/univalle_users
+      INSTITUTIONAL_EMAIL_DOMAIN: ${INSTITUTIONAL_EMAIL_DOMAIN:-correounivalle.edu.co}
+      USERS_SERVICE_URL: ${USERS_SERVICE_URL:-http://localhost:3002}
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_SECURE: "false"
+      SMTP_FROM: ${SMTP_FROM:-Univalle Shop <no-reply@univalle.local>}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+
+volumes:
+  mongo-data:

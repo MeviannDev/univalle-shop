@@ -1,0 +1,36 @@
+@baseUrl = http://localhost:3002
+@email = estudiante@correounivalle.edu.co
+@password = Valle2026!
+@firstName = Ana
+@lastName = Valencia
+@vinculationType = ESTUDIANTE
+@accessToken = {{login.response.body.accessToken}}
+
+### Registrar usuario (siempre CUSTOMER y PENDING_VERIFICATION)
+# @name register
+# El endpoint devuelve id/estado. Abre http://localhost:8025 para acceder al enlace de verificación enviado a Mailpit.
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "firstName": "{{firstName}}",
+  "lastName": "{{lastName}}",
+  "password": "{{password}}",
+  "vinculationType": "{{vinculationType}}"
+}
+
+### Iniciar sesión
+# @name login
+# Abre el enlace del correo en Mailpit primero. La respuesta de login incluye accessToken.
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### Ejemplo de endpoint protegido (usa el accessToken de la respuesta login)
+GET {{baseUrl}}/users/me
+Authorization: Bearer {{accessToken}}
