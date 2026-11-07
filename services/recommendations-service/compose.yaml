@@ -1,0 +1,30 @@
+services:
+  mongodb-recommendations:
+    image: mongo:8
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:27020:27017"
+    volumes:
+      - mongo-recommendations-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  recommendations-service:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      mongodb-recommendations:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3004:3004"
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3004
+      MONGODB_URI: mongodb://mongodb-recommendations:27017/univalle_recommendations
+      RECOMMENDATIONS_SERVICE_URL: ${RECOMMENDATIONS_SERVICE_URL:-http://localhost:3004}
+
+volumes:
+  mongo-recommendations-data:

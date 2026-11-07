@@ -1,0 +1,30 @@
+services:
+  mongodb-payments:
+    image: mongo:8
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:27019:27017"
+    volumes:
+      - mongo-payments-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  payments-service:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      mongodb-payments:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3003:3003"
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3003
+      MONGODB_URI: ${MONGODB_URI:-mongodb+srv://univalle-admin:<db_password>@cluster0.no82gn4.mongodb.net/univalle_payments?retryWrites=true&w=majority}
+      PAYMENTS_SERVICE_URL: ${PAYMENTS_SERVICE_URL:-http://localhost:3003}
+
+volumes:
+  mongo-payments-data:
