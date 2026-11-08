@@ -1,5 +1,6 @@
-import { BadGatewayException, Injectable } from '@nestjs/common';
+import { BadGatewayException, Inject, Injectable } from '@nestjs/common';
 import type { Request } from 'express';
+import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 
 const REQUEST_HEADERS = [
   'accept',
@@ -13,15 +14,13 @@ const REQUEST_HEADERS = [
 
 @Injectable()
 export class UsersProxyService {
-  private readonly serviceUrl = new URL(
-    process.env.USERS_SERVICE_URL ?? 'http://localhost:3002',
-  );
+  constructor(@Inject(APP_CONFIG) private readonly config: AppConfig) {}
 
   async forward(request: Request): Promise<globalThis.Response> {
-    const basePath = this.serviceUrl.pathname.replace(/\/+$/, '');
+    const basePath = this.config.usersServiceUrl.pathname.replace(/\/+$/, '');
     const targetUrl = new URL(
       `${basePath}${request.originalUrl}`,
-      this.serviceUrl.origin,
+      this.config.usersServiceUrl.origin,
     );
     const headers = new Headers();
 

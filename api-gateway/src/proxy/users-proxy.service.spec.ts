@@ -5,15 +5,16 @@ import { UsersProxyService } from './users-proxy.service.js';
 describe('UsersProxyService', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
-    vi.unstubAllEnvs();
   });
 
   it('forwards the path, query, method, authorization, and body', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response('ok'));
     vi.stubGlobal('fetch', fetchMock);
-    vi.stubEnv('USERS_SERVICE_URL', 'http://users.internal:3002');
 
-    const service = new UsersProxyService();
+    const service = new UsersProxyService({
+      port: 3000,
+      usersServiceUrl: new URL('http://users.internal:3002'),
+    });
     const request = {
       originalUrl: '/auth/login?source=web',
       method: 'POST',
@@ -43,7 +44,10 @@ describe('UsersProxyService', () => {
   it('returns a gateway error when the users service cannot be reached', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
 
-    const service = new UsersProxyService();
+    const service = new UsersProxyService({
+      port: 3000,
+      usersServiceUrl: new URL('http://localhost:3002'),
+    });
 
     await expect(
       service.forward({
