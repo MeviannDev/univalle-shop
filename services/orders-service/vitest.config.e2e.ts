@@ -1,11 +1,11 @@
-import { defineConfig, mergeConfig } from 'vitest/config';
-import baseConfig from './vitest.config.js';
+import { defineConfig } from 'vitest/config';
+import tsconfigPaths from 'vite-tsconfig-paths';
 
-export default mergeConfig(
-  baseConfig,
-  defineConfig({
-    test: {
-      include: ['test/**/*.e2e-spec.ts'],
-    },
-  }),
-);
+export default defineConfig({
+  plugins: [tsconfigPaths()],
+  test: {
+    globals: true,
+    environment: 'node',
+    include: ['test/**/*.e2e-spec.ts'],
+  },
+});

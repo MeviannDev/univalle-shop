@@ -116,6 +116,34 @@ describe('Order', () => {
     expect(order.status.value).toBe('CANCELLED');
   });
 
+  it('rehidrata las referencias de pago e inventario para los adaptadores', () => {
+    const order = Order.createFromCart(new OrderId('order-restore'), cart());
+    order.addReservationId('reservation-1');
+    order.setPaymentId('payment-1');
+    order.markAsPaid();
+    order.recordPaymentEvent('payment-event-1');
+
+    const restored = Order.reconstitute({
+      id: order.id,
+      userId: order.userId,
+      items: order.items,
+      total: order.total,
+      createdAt: order.createdAt,
+      updatedAt: order.updatedAt,
+      status: order.status.value,
+      createdBy: userId.value,
+      statusHistory: order.statusHistory,
+      reservationIds: order.reservationIds,
+      paymentId: order.paymentId,
+      processedPaymentEventIds: order.processedPaymentEventIds,
+    });
+
+    expect(restored.status.value).toBe('PAID');
+    expect(restored.reservationIds).toEqual(['reservation-1']);
+    expect(restored.paymentId).toBe('payment-1');
+    expect(restored.hasProcessedPaymentEvent('payment-event-1')).toBe(true);
+  });
+
   it('rechaza transiciones inválidas y cancelar una orden entregada', () => {
     const order = Order.createFromCart(new OrderId('order-1'), cart());
     expect(() => order.ship()).toThrow(InvalidOrderTransitionError);
