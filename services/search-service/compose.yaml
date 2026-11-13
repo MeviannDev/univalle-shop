@@ -1,0 +1,35 @@
+services:
+  mongodb-search:
+    image: mongo:8
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${MONGODB_HOST_PORT:-27022}:27017"
+    volumes:
+      - mongo-search-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  search-service:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      mongodb-search:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3006:3006"
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3006
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongodb-search:27017/univalle_search}
+      CATALOG_SERVICE_URL: ${CATALOG_SERVICE_URL:-http://host.docker.internal:3005}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      REINDEX_ON_STARTUP: ${REINDEX_ON_STARTUP:-true}
+      REINDEX_INTERVAL_MINUTES: ${REINDEX_INTERVAL_MINUTES:-10}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  mongo-search-data:
