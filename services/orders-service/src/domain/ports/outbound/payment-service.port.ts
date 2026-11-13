@@ -23,6 +23,13 @@ export type PaymentResult = {
   eventId: string;
 };
 
+export type CancelOrRefundPaymentRequest = {
+  paymentId: string;
+  orderId: OrderId;
+  idempotencyKey: string;
+};
+
 export interface PaymentServicePort {
   startPayment(request: StartPaymentRequest): Promise<PaymentInitiated>;
+  cancelOrRefundPayment(request: CancelOrRefundPaymentRequest): Promise<void>;
 }

@@ -10,6 +10,10 @@ import { MongooseModule } from '@nestjs/mongoose';
       useFactory: (configService: ConfigService) => ({
         uri: configService.getOrThrow<string>('MONGODB_URI'),
         dbName: configService.getOrThrow<string>('MONGODB_DATABASE'),
+        serverSelectionTimeoutMS: configService.get<number>(
+          'MONGODB_SERVER_SELECTION_TIMEOUT_MS',
+          5000,
+        ),
       }),
     }),
   ],

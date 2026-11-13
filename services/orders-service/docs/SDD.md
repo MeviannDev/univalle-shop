@@ -62,12 +62,14 @@ Puede realizar las operaciones de comprador y, además:
   permitidas.
 
 La autenticación y emisión del JWT son responsabilidad del Servicio de
-Usuarios. Orders no autentica credenciales: valida el JWT recibido mediante el
-puerto de Usuarios y extrae de sus claims `userId` y `role`. También debe
-confirmar que la cuenta esté activa y vinculada con la Universidad del Valle.
+Usuarios. Orders verifica la firma HS256 y el emisor `users-service`, y consulta
+el perfil mediante el puerto de Usuarios para confirmar identidad, rol y
+vigencia de la cuenta.
 
-**Supuesto:** los roles del JWT son `STUDENT`, `TEACHER`, `STAFF` y `ADMIN`.
-Debe confirmarse con el responsable de Usuarios.
+**Contrato observado en Users:** los claims incluyen `sub`, `email`, `role`,
+`iss`, `iat` y `exp`; los roles de autorización son `CUSTOMER` y `ADMIN`.
+`JWT_SECRET` debe coincidir entre servicios y mantenerse secreto. Los tokens
+actuales no contienen afiliación universitaria, por lo que Orders no la valida.
 
 ## 3. Requisitos funcionales
 
@@ -591,6 +593,7 @@ Catálogo. Orders solo depende de la abstracción.
 
 ```text
 startPayment(request: StartPaymentRequest): Promise<PaymentInitiated>
+cancelOrRefundPayment(request: CancelOrRefundPaymentRequest): Promise<void>
 handlePaymentResult(result: PaymentResult): Promise<void>
 
 StartPaymentRequest = {
@@ -609,6 +612,11 @@ PaymentResult = {
   result: "APPROVED" | "REJECTED" | "PENDING",
   eventId: string
 }
+CancelOrRefundPaymentRequest = {
+  paymentId: string,
+  orderId: OrderId,
+  idempotencyKey: string
+}
 ```
 
 El callback/webhook o la respuesta síncrona debe definirse con Pagos.
@@ -626,9 +634,15 @@ OrderRepository:
   findById(orderId: OrderId): Promise<Order | null>
   findByIdempotencyKey(userId: UserId, key: string): Promise<Order | null>
   save(order: Order): Promise<void>
+  saveIfAbsentByIdempotencyKey(order: Order, key: string): Promise<{ order: Order, created: boolean }>
+  savePaymentResultOnce(order: Order, eventId: string): Promise<boolean>
   listByUser(userId: UserId, filter: OrderFilter, page: PageRequest): Promise<Page<Order>>
   listAll(filter: AdminOrderFilter, page: PageRequest): Promise<Page<Order>>
 ```
+
+La operación `saveIfAbsentByIdempotencyKey` debe ser atómica y respaldarse con
+un índice único `{ userId: 1, idempotencyKey: 1 }`. `savePaymentResultOnce`
+debe impedir procesar dos veces un mismo `eventId`.
 
 ### Otros puertos
 
@@ -696,7 +710,8 @@ Orders y no del dominio.
   "currency": "COP",
   "idempotencyKey": "checkout-2026-0001",
   "paymentId": null,
-  "reservationId": null,
+  "reservationIds": [],
+  "processedPaymentEventIds": [],
   "statusHistory": [
     {
       "from": null,
@@ -773,12 +788,20 @@ marca el fallo según el contrato de Catálogo.
 | `EmptyCartError` | `CART_EMPTY` | `409` |
 | Producto inexistente | `PRODUCT_NOT_FOUND` | `404` |
 | Stock insuficiente | `INSUFFICIENT_STOCK` | `409` |
+| Producto no disponible | `PRODUCT_UNAVAILABLE` | `409` |
+| Carrito o ítem inexistente | `CART_NOT_FOUND` / `CART_ITEM_NOT_FOUND` | `404` |
 | Orden inexistente | `ORDER_NOT_FOUND` | `404` |
 | Acceso a recurso ajeno | `ORDER_FORBIDDEN` | `403` |
 | Transición inválida | `ORDER_INVALID_TRANSITION` | `409` |
 | Clave idempotente conflictiva | `IDEMPOTENCY_CONFLICT` | `409` |
+| Identidad no válida | `UNAUTHORIZED` | `401` |
+| Rol insuficiente | `FORBIDDEN` | `403` |
+| Paginación o filtro inválido | `INVALID_PAGINATION` / `INVALID_ORDER_FILTER` | `422` |
+| Clave idempotente mal formada | `INVALID_IDEMPOTENCY_KEY` | `422` |
+| Resultado de pago inconsistente | `INVALID_PAYMENT_RESULT` | `409` |
 | Datos externos inválidos | `DEPENDENCY_INVALID_RESPONSE` | `502` |
 | Timeout o indisponibilidad | `DEPENDENCY_UNAVAILABLE` | `503` |
+| Compensación distribuida fallida | `CHECKOUT_COMPENSATION_FAILED` | `503` |
 
 Los adaptadores deben establecer timeouts finitos, realizar como máximo dos
 reintentos para errores transitorios y no reintentar errores de validación.
@@ -811,7 +834,7 @@ cuando una operación crítica no se confirmó.
 | Quién descuenta inventario | Catálogo al reservar; Orders directamente | Catálogo reserva y confirma | Catálogo |
 | Momento del descuento | Al checkout; al aprobar pago; al despacho | Reservar en checkout y confirmar tras pago | Catálogo/Pagos |
 | Resultado de pago | Callback; polling; respuesta síncrona | Callback interno idempotente | Pagos |
-| Claims del JWT | `sub`/`role`; `userId`/`role` | `userId`, `role`, estado/afiliación disponibles | Usuarios |
+| Claims del JWT | `sub`/`role`; `userId`/`role` | `sub`, `role`, `iss=users-service`, `iat`, `exp`; HS256 | Usuarios |
 | Carrito expira | Nunca; TTL; al checkout | No expira en la primera versión | Equipo/Usuarios |
 | Máximo por ítem | 10; 99; configurable | 99 unidades, configurable | Catálogo |
 | Moneda | COP; multi-moneda | COP y entero en unidad menor | Equipo/Pagos |
@@ -821,9 +844,66 @@ cuando una operación crítica no se confirmó.
 | Autenticación interna | JWT de servicio; API key; mTLS | JWT/API key entre servicios | Usuarios/Pagos |
 | Convención de IDs | Mongo ObjectId; UUID; prefijo | IDs string con prefijo | Equipo |
 | Límite de página | 20; 50; 100 | 20 por defecto, 100 máximo | Equipo |
+| Escritura idempotente | Buscar y guardar; inserción atómica condicional | Orders Repository garantiza una sola orden por usuario/clave y devuelve la existente en reintentos, independientemente del payload | Orders |
+| Dedupe de callbacks | En memoria; persistido atómicamente | Persistir `eventId` con el cambio de orden mediante `savePaymentResultOnce` | Pagos/Orders |
+| Idempotencia de inventario | Reserva/liberación repetible; no repetible | `reserveStock`, `releaseStock` y `commitStock` son idempotentes por `reservationId` | Catálogo |
+| Fallo al iniciar pago | Mantener pendiente; marcar fallida y compensar | Marcar `PAYMENT_FAILED`, liberar reservas y restaurar el carrito; requiere operación idempotente en Pagos | Pagos |
+| Seguridad del callback interno | Guard en Gateway; credencial de servicio; mTLS | El adaptador interno autentica Pagos antes de invocar el caso de uso | Pagos/Usuarios |
+| Cancelar/reembolsar pago al cancelar orden | Cancelación para pago pendiente; reembolso para pago aprobado | Pagos expone `cancelOrRefundPayment` idempotente por orden antes de liberar inventario y cancelar | Pagos |
 
 Estas decisiones no bloquean la especificación inicial, pero deben confirmarse
 antes de implementar adaptadores o integrar los servicios compañeros.
+
+### Contratos de infraestructura implementados y pendientes de confirmar
+
+- **MongoDB:** `MONGODB_URI`, `MONGODB_DATABASE` y
+  `MONGODB_SERVER_SELECTION_TIMEOUT_MS`. El callback de pago usa una
+  transacción para persistir de forma atómica el evento y la orden; se requiere
+  MongoDB con replica set o clúster sharded.
+- **JWT:** `JwtTokenVerifier` acepta HS256, emisor `users-service`, claims
+  `sub`, `role`, `iat` y `exp`; el endpoint de perfil también debe coincidir en
+  `id` (o `userId`/`sub`) y `role`. Perfil esperado: `active: true` o
+  `status: "ACTIVE"`. La ruta `/api/users/me` y ese esquema deben confirmarse.
+- **Catálogo (supuesto HTTP):** `GET /api/products/:id` devuelve `name`,
+  `unitPrice` o `price` con `{amount,currency}`, `available` y `stock`.
+  `POST /api/inventory/reservations` acepta `reservationId`, `productId` y
+  `quantity`; DELETE libera una reserva y POST `:id/commit` la confirma.
+- **Pagos (supuesto HTTP):** `POST /api/payments` acepta orden, usuario, monto
+  e `idempotencyKey`, y devuelve `paymentId` más `PENDING`, `APPROVED` o
+  `REJECTED`. `POST /api/payments/:paymentId/cancel` cancela/reembolsa de forma
+  idempotente.
+- **Callback:** Orders expone `POST /api/orders/:id/payment-result`, protegido
+  por `X-Internal-Api-Key`; el evento requiere `eventId` estable para dedupe.
+  La API key de ejemplo es solo local y no reemplaza identidad de servicio en
+  producción.
+- Los tres adaptadores externos se seleccionan independientemente con
+  `USERS_ADAPTER`, `CATALOG_ADAPTER` y `PAYMENTS_ADAPTER` (`stub` o `http`).
+  Los URLs, timeouts y `STUB_PAYMENT_RESULT` se describen en `.env.example`.
+
+### Supuestos operativos de la capa de aplicación
+
+- **SUPUESTO:** el repositorio implementará atómicamente la escritura
+  idempotente mediante `saveIfAbsentByIdempotencyKey`; la búsqueda previa solo
+  evita trabajo duplicado, no reemplaza la restricción única.
+- **SUPUESTO:** una clave existente del mismo usuario devuelve la primera orden
+  creada, aunque el payload posterior difiera. La comparación de payload o el
+  rechazo de claves reutilizadas requiere persistir una huella de la solicitud.
+- **SUPUESTO:** Catálogo hace idempotentes las reservas, liberaciones y
+  confirmaciones por `reservationId`. En un checkout de varios productos se
+  guarda una referencia por reserva.
+- **SUPUESTO:** Pagos acepta `idempotencyKey` al iniciar y puede devolver
+  `PENDING`, `APPROVED` o `REJECTED` síncronamente; callbacks llevan un `eventId`
+  estable y único.
+- **SUPUESTO:** los resultados de pago llegan al caso de uso desde un adaptador
+  interno que ya autenticó el servicio Pagos. Esa autenticación no se simula
+  como autorización de comprador.
+- **SUPUESTO:** los cambios de estado de pago pueden reintentarse; las
+  confirmaciones de inventario son idempotentes. Si Pagos aprueba pero Catálogo
+  o la persistencia fallan, se requiere reconciliación operativa posterior.
+- **SUPUESTO:** Pagos implementará `cancelOrRefundPayment`: anula pagos
+  pendientes y reembolsa pagos aprobados. La operación es idempotente con
+  `cancel-{orderId}`. No se cancela la orden local si Pagos no confirma esta
+  operación.
 
 ## 15. Plan de implementación
 
@@ -842,4 +922,3 @@ antes de implementar adaptadores o integrar los servicios compañeros.
 11. Integrar Docker Compose y variables de entorno de los servicios.
 12. Actualizar README y documentación de operación.
 13. Ejecutar build, lint, pruebas unitarias, integración y smoke tests Docker.
-
