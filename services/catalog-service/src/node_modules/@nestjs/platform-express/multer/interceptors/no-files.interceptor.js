@@ -1,0 +1,32 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.NoFilesInterceptor = NoFilesInterceptor;
+const tslib_1 = require("tslib");
+const common_1 = require("@nestjs/common");
+const multer = require("multer");
+const files_constants_1 = require("../files.constants");
+const multer_utils_1 = require("../multer/multer.utils");
+/**
+ *
+ * @param localOptions
+ * @publicApi
+ */
+function NoFilesInterceptor(localOptions) {
+    let MixinInterceptor = class MixinInterceptor {
+        constructor(options = {}) {
+            this.multer = multer((0, multer_utils_1.applyDefaultLimits)((0, multer_utils_1.mergeMulterOptions)(options, localOptions)));
+        }
+        async intercept(context, next) {
+            const ctx = context.switchToHttp();
+            await (0, multer_utils_1.runMulter)(this.multer.none(), ctx.getRequest(), ctx.getResponse());
+            return next.handle();
+        }
+    };
+    MixinInterceptor = tslib_1.__decorate([
+        tslib_1.__param(0, (0, common_1.Optional)()),
+        tslib_1.__param(0, (0, common_1.Inject)(files_constants_1.MULTER_MODULE_OPTIONS)),
+        tslib_1.__metadata("design:paramtypes", [Object])
+    ], MixinInterceptor);
+    const Interceptor = (0, common_1.mixin)(MixinInterceptor);
+    return Interceptor;
+}

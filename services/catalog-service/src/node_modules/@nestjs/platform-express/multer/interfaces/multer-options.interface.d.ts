@@ -1,0 +1,74 @@
+/**
+ * @see https://github.com/expressjs/multer
+ *
+ * @publicApi
+ */
+export interface MulterOptions {
+    dest?: string | Function;
+    /** The storage engine to use for uploaded files. */
+    storage?: any;
+    /**
+     * An object specifying the size limits of the following optional properties. This object is passed to busboy,
+     * with `parts` set to its default when absent, and the details of properties can be found on
+     * https://github.com/mscdex/busboy#busboy-methods
+     */
+    limits?: {
+        /** Max field name size (Default: 100 bytes) */
+        fieldNameSize?: number;
+        /** Max field value size (Default: 1MB) */
+        fieldSize?: number;
+        /** Max number of non- file fields (Default: Infinity) */
+        fields?: number;
+        /** For multipart forms, the max file size (in bytes)(Default: Infinity) */
+        fileSize?: number;
+        /** For multipart forms, the max number of file fields (Default: Infinity) */
+        files?: number;
+        /**
+         * For multipart forms, the max number of parts (fields + files) (Default:
+         * 1000, as on Fastify, where multer's own default is Infinity). Set it to
+         * `Infinity` to lift the limit.
+         */
+        parts?: number;
+        /** For multipart forms, the max number of header key=> value pairs to parse Default: 2000(same as node's http). */
+        headerPairs?: number;
+    };
+    /** Keep the full path of files instead of just the base name (Default: false) */
+    preservePath?: boolean;
+    /** Default character set for part header values (e.g. filename) (Default: 'latin1') */
+    defParamCharset?: string;
+    /**
+     * Decides which files are stored. Call `callback(null, false)` to skip a
+     * file, or `callback(error, false)` to fail the request with `error`. An
+     * error the filter throws, or an async filter rejects with, before it
+     * calls back fails the request in the same way.
+     */
+    fileFilter?(req: any, file: {
+        /** Field name specified in the form */
+        fieldname: string;
+        /** Name of the file on the user's computer */
+        originalname: string;
+        /** Encoding type of the file */
+        encoding: string;
+        /** Mime type of the file */
+        mimetype: string;
+        /** Size of the file in bytes */
+        size: number;
+        /** The folder to which the file has been saved (DiskStorage) */
+        destination: string;
+        /** The name of the file within the destination (DiskStorage) */
+        filename: string;
+        /** Location of the uploaded file (DiskStorage) */
+        path: string;
+        /** A Buffer of the entire file (MemoryStorage) */
+        buffer: Buffer;
+    }, callback: (error: Error | null, acceptFile: boolean) => void): void;
+}
+/**
+ * @publicApi
+ */
+export interface MulterField {
+    /** The field name. */
+    name: string;
+    /** Optional maximum number of files per field to accept. */
+    maxCount?: number;
+}

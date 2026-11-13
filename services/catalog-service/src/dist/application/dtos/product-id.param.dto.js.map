@@ -1,0 +1,1 @@
+{"version":3,"file":"product-id.param.dto.js","sourceRoot":"","sources":["../../../application/dtos/product-id.param.dto.ts"],"names":[],"mappings":";;;;;;;;;AAAA,OAAO,EAAE,QAAQ,EAAE,UAAU,EAAE,OAAO,EAAE,MAAM,iBAAiB,CAAC;AAEhE,MAAM,OAAO,iBAAiB;IAI5B,SAAS,CAAU;CACpB;AADC;IAHC,QAAQ,EAAE;IACV,UAAU,EAAE;IACZ,OAAO,CAAC,QAAQ,EAAE,EAAE,OAAO,EAAE,mCAAmC,EAAE,CAAC;;oDACjD"}
