@@ -28,6 +28,10 @@ MongoDB mediante inyección de dependencias.
 
 ## API
 
+La documentación interactiva de OpenAPI/Swagger está disponible en
+`http://localhost:3000/api/docs`; el documento JSON está en
+`http://localhost:3000/api/docs-json`.
+
 ### Buscar productos
 
 ```http
