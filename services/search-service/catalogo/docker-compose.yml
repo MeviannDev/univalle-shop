@@ -1,0 +1,27 @@
+services:
+  catalog-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      PORT: 3006
+      MONGODB_URI: mongodb://mongo:27017/univalle_catalog
+    ports:
+      - '3006:3006'
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  mongo:
+    image: mongo:8
+    volumes:
+      - catalog-data:/data/db
+    healthcheck:
+      test:
+        ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  catalog-data:
