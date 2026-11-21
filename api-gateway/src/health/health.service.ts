@@ -5,6 +5,8 @@ export interface ReadinessResult {
   status: 'ok' | 'unavailable';
   services: {
     'users-service': 'available' | 'unavailable';
+    'catalog-service': 'available' | 'unavailable';
+    'search-service': 'available' | 'unavailable';
   };
 }
 
@@ -13,28 +15,39 @@ export class HealthService {
   constructor(@Inject(APP_CONFIG) private readonly config: AppConfig) {}
 
   async checkReadiness(): Promise<ReadinessResult> {
+    const [usersAvailable, catalogAvailable, searchAvailable] =
+      await Promise.all([
+        this.isAvailable(this.config.usersServiceUrl),
+        this.isAvailable(this.config.catalogServiceUrl),
+        this.isAvailable(this.config.searchServiceUrl),
+      ]);
+
+    return {
+      status:
+        usersAvailable && catalogAvailable && searchAvailable
+          ? 'ok'
+          : 'unavailable',
+      services: {
+        'users-service': usersAvailable ? 'available' : 'unavailable',
+        'catalog-service': catalogAvailable ? 'available' : 'unavailable',
+        'search-service': searchAvailable ? 'available' : 'unavailable',
+      },
+    };
+  }
+
+  private async isAvailable(serviceUrl: URL): Promise<boolean> {
     const healthUrl = new URL(
-      `${this.config.usersServiceUrl.pathname.replace(/\/+$/, '')}/api/docs`,
-      this.config.usersServiceUrl.origin,
+      `${serviceUrl.pathname.replace(/\/+$/, '')}/api/docs`,
+      serviceUrl.origin,
     );
 
     try {
       const response = await fetch(healthUrl, {
         signal: AbortSignal.timeout(3000),
       });
-      const available = response.status < 500;
-
-      return {
-        status: available ? 'ok' : 'unavailable',
-        services: {
-          'users-service': available ? 'available' : 'unavailable',
-        },
-      };
+      return response.status < 500;
     } catch {
-      return {
-        status: 'unavailable',
-        services: { 'users-service': 'unavailable' },
-      };
+      return false;
     }
   }
 }
