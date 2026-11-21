@@ -6,6 +6,8 @@ export interface RegisterUserCommand {
   email: string;
   firstName: string;
   lastName: string;
+  primaryPhone?: string;
+  marketingConsent?: boolean;
   password: string;
   vinculationType: VinculationTypeValue;
 }
@@ -13,6 +15,8 @@ export interface RegisterUserCommand {
 export interface UpdateProfileCommand {
   firstName?: string;
   lastName?: string;
+  primaryPhone?: string | null;
+  marketingConsent?: boolean;
   vinculationType?: VinculationTypeValue;
 }
 

@@ -158,7 +158,7 @@ En producción `JWT_SECRET` es obligatorio. Configura un servidor SMTP real y no
 
 ## API
 
-documentacion de swagger: http://localhost:3002/api/docs
+Documentación de Swagger: http://localhost:3002/api/docs. Cada operación incluye una descripción y ejemplos de solicitudes que puedes seleccionar o editar en **Try it out**. En las rutas protegidas, usa **Authorize** e ingresa el access token (sin anteponer `Bearer `); Swagger lo agrega automáticamente.
 Base URL local: `http://localhost:3002`. No hay un prefijo global adicional.
 
 Las solicitudes de ejemplo están en [auth.http](./auth.http) y [users.http](./users.http). En VS Code, abre cualquiera de esos archivos con la extensión REST Client y selecciona **Send Request**. También puedes copiar las solicitudes en Postman. Para endpoints protegidos, configura:
@@ -171,12 +171,14 @@ Authorization: Bearer <accessToken>
 
 | Método y ruta | Descripción | Acceso |
 |---|---|---|
-| `POST /auth/register` | Registra una cuenta `CUSTOMER` pendiente de verificación. Requiere `email`, `firstName`, `lastName`, `password` y `vinculationType`. El correo debe usar el dominio institucional configurado. | Público |
+| `POST /auth/register` | Registra una cuenta `CUSTOMER` pendiente de verificación. Requiere `email`, `firstName`, `lastName`, `password` y `vinculationType`; acepta `primaryPhone` y `marketingConsent` opcionales. El correo debe usar el dominio institucional configurado. | Público |
 | `GET /auth/verify-email?token=...` | Verifica la cuenta usando el token del enlace enviado por correo. | Público |
 | `POST /auth/verify-email` | Alternativa para verificar la cuenta; recibe `{ "token": "..." }`. | Público |
 | `POST /auth/login` | Inicia sesión con `{ "email": "...", "password": "..." }`; responde con `accessToken` y usuario. La cuenta debe estar verificada y activa. | Público |
 
 `vinculationType` acepta `ESTUDIANTE`, `DOCENTE` o `ADMINISTRATIVO`. El registro no devuelve el token de verificación: el mensaje se captura en Mailpit durante el desarrollo. Los enlaces de verificación vencen en 24 horas. Los tokens de acceso vencen en una hora. El inicio de sesión está limitado a 5 intentos por minuto y dirección IP.
+
+El consentimiento de marketing es opcional y se considera no otorgado (`false`) si se omite. La cuenta registra la fecha de la elección cuando se envía explícitamente; el usuario puede cambiarla desde su perfil.
 
 ### Perfil y direcciones
 
@@ -185,7 +187,7 @@ Todas estas rutas requieren un access token.
 | Método y ruta | Descripción |
 |---|---|
 | `GET /users/me` | Obtiene el perfil actual y sus direcciones. |
-| `PATCH /users/me` | Actualiza los campos enviados: `firstName`, `lastName`, `vinculationType`. |
+| `PATCH /users/me` | Actualiza los campos enviados: `firstName`, `lastName`, `primaryPhone`, `marketingConsent` y `vinculationType`. Envía `primaryPhone: null` para eliminar el teléfono; `marketingConsent: false` revoca el consentimiento. |
 | `PATCH /users/me/password` | Cambia la contraseña con `currentPassword` y `newPassword`. |
 | `POST /users/me/addresses` | Agrega una dirección con `street`, `city`, `department`, `phone` y `isDefault` opcional. |
 | `PATCH /users/me/addresses/:id` | Actualiza parcialmente una dirección. Los campos omitidos conservan su valor. |

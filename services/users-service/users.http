@@ -16,6 +16,8 @@ Content-Type: application/json
 {
   "firstName": "Ana María",
   "lastName": "Valencia",
+  "primaryPhone": "+57 300 1234567",
+  "marketingConsent": true,
   "vinculationType": "ESTUDIANTE"
 }
 

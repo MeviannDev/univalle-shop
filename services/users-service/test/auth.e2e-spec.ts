@@ -49,6 +49,8 @@ describe('Users service authentication (e2e)', () => {
         email: 'e2e-user@correounivalle.edu.co',
         firstName: 'E2E',
         lastName: 'User',
+        primaryPhone: '+57 300 1234567',
+        marketingConsent: true,
         password: 'Univalle2026!',
         vinculationType: 'ESTUDIANTE',
       })
@@ -99,6 +101,10 @@ describe('Users service authentication (e2e)', () => {
       .expect(201);
     expect(login.body.accessToken).toEqual(expect.any(String));
     expect(login.body.user).not.toHaveProperty('passwordHash');
+    expect(login.body.user).toMatchObject({
+      primaryPhone: '+57 300 1234567',
+      marketingConsent: true,
+    });
 
     const profile = await request(app.getHttpServer())
       .get('/users/me')
@@ -108,7 +114,10 @@ describe('Users service authentication (e2e)', () => {
       email: 'e2e-user@correounivalle.edu.co',
       role: 'CUSTOMER',
       status: 'ACTIVE',
+      primaryPhone: '+57 300 1234567',
+      marketingConsent: true,
     });
+    expect(profile.body.marketingConsentUpdatedAt).toEqual(expect.any(String));
     await request(app.getHttpServer())
       .patch('/users/me')
       .set('Authorization', `Bearer ${login.body.accessToken}`)

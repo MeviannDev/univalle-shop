@@ -10,6 +10,8 @@ export class UpdateProfile {
     user.updateProfile({
       firstName: changes.firstName,
       lastName: changes.lastName,
+      primaryPhone: changes.primaryPhone,
+      marketingConsent: changes.marketingConsent,
       ...(changes.vinculationType
         ? { vinculationType: VinculationType.create(changes.vinculationType) }
         : {}),

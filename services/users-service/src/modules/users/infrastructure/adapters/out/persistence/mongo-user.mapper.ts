@@ -9,6 +9,9 @@ export interface MongoUserDocument {
   email: string;
   firstName: string;
   lastName: string;
+  primaryPhone?: string | null;
+  marketingConsent?: boolean;
+  marketingConsentUpdatedAt?: Date | null;
   passwordHash: string;
   role: RoleValue;
   vinculationType: VinculationTypeValue;
@@ -28,6 +31,11 @@ export function toDomainUser(
 ): User {
   const data: UserData = {
     ...document,
+    primaryPhone: document.primaryPhone ?? null,
+    marketingConsent: document.marketingConsent ?? false,
+    marketingConsentUpdatedAt: document.marketingConsentUpdatedAt
+      ? new Date(document.marketingConsentUpdatedAt)
+      : null,
     createdAt: new Date(document.createdAt),
     updatedAt: new Date(document.updatedAt),
     addresses: document.addresses.map((address) => ({ ...address })),
