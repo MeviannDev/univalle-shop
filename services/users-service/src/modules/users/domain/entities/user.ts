@@ -1,5 +1,6 @@
 import { Address, AddressProps } from '../value-objects/address.js';
 import { Email } from '../value-objects/email.js';
+import { PhoneNumber } from '../value-objects/phone-number.js';
 import { Role, RoleValue } from '../value-objects/role.js';
 import { UserStatus, UserStatusValue } from '../value-objects/user-status.js';
 import {
@@ -21,6 +22,9 @@ export interface UserData {
   email: string;
   firstName: string;
   lastName: string;
+  primaryPhone: string | null;
+  marketingConsent: boolean;
+  marketingConsentUpdatedAt: Date | null;
   passwordHash: string;
   role: RoleValue;
   vinculationType: VinculationTypeValue;
@@ -35,6 +39,8 @@ export interface NewUserProps {
   email: Email;
   firstName: string;
   lastName: string;
+  primaryPhone?: string;
+  marketingConsent?: boolean;
   passwordHash: string;
   vinculationType: VinculationType;
   now?: Date;
@@ -59,6 +65,13 @@ export class User {
       email: props.email.value,
       firstName,
       lastName,
+      primaryPhone:
+        props.primaryPhone === undefined
+          ? null
+          : PhoneNumber.create(props.primaryPhone).value,
+      marketingConsent: props.marketingConsent ?? false,
+      marketingConsentUpdatedAt:
+        props.marketingConsent === undefined ? null : new Date(now),
       passwordHash: props.passwordHash,
       role: Role.customer().value,
       vinculationType: props.vinculationType.value,
@@ -76,6 +89,14 @@ export class User {
     return new User({
       ...data,
       email: Email.create(data.email, institutionalDomain).value,
+      primaryPhone:
+        data.primaryPhone === null
+          ? null
+          : PhoneNumber.create(data.primaryPhone).value,
+      marketingConsent: data.marketingConsent ?? false,
+      marketingConsentUpdatedAt: data.marketingConsentUpdatedAt
+        ? new Date(data.marketingConsentUpdatedAt)
+        : null,
       role: Role.create(data.role).value,
       vinculationType: VinculationType.create(data.vinculationType).value,
       status: UserStatus.create(data.status).value,
@@ -96,6 +117,17 @@ export class User {
   }
   get lastName(): string {
     return this.data.lastName;
+  }
+  get primaryPhone(): string | null {
+    return this.data.primaryPhone;
+  }
+  get marketingConsent(): boolean {
+    return this.data.marketingConsent;
+  }
+  get marketingConsentUpdatedAt(): Date | null {
+    return this.data.marketingConsentUpdatedAt
+      ? new Date(this.data.marketingConsentUpdatedAt)
+      : null;
   }
   get passwordHash(): string {
     return this.data.passwordHash;
@@ -138,6 +170,8 @@ export class User {
     changes: {
       firstName?: string;
       lastName?: string;
+      primaryPhone?: string | null;
+      marketingConsent?: boolean;
       vinculationType?: VinculationType;
     },
     now = new Date(),
@@ -151,6 +185,21 @@ export class User {
       if (!changes.lastName.trim())
         throw new ValidationError('Last name cannot be empty');
       this.data.lastName = changes.lastName.trim();
+    }
+    if (changes.primaryPhone !== undefined) {
+      this.data.primaryPhone =
+        changes.primaryPhone === null
+          ? null
+          : PhoneNumber.create(changes.primaryPhone).value;
+    }
+    if (changes.marketingConsent !== undefined) {
+      if (
+        changes.marketingConsent !== this.data.marketingConsent ||
+        this.data.marketingConsentUpdatedAt === null
+      ) {
+        this.data.marketingConsentUpdatedAt = new Date(now);
+      }
+      this.data.marketingConsent = changes.marketingConsent;
     }
     if (changes.vinculationType)
       this.data.vinculationType = changes.vinculationType.value;
@@ -285,6 +334,9 @@ export class User {
       addresses: this.data.addresses.map((address) => ({ ...address })),
       createdAt: new Date(this.data.createdAt),
       updatedAt: new Date(this.data.updatedAt),
+      marketingConsentUpdatedAt: this.data.marketingConsentUpdatedAt
+        ? new Date(this.data.marketingConsentUpdatedAt)
+        : null,
     };
   }
 

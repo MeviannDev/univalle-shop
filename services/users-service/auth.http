@@ -16,6 +16,8 @@ Content-Type: application/json
   "email": "{{email}}",
   "firstName": "{{firstName}}",
   "lastName": "{{lastName}}",
+  "primaryPhone": "+57 300 1234567",
+  "marketingConsent": false,
   "password": "{{password}}",
   "vinculationType": "{{vinculationType}}"
 }

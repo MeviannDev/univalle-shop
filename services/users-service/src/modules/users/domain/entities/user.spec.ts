@@ -45,9 +45,66 @@ describe('User domain', () => {
     const user = createPendingUser();
     expect(user.role).toBe('CUSTOMER');
     expect(user.status).toBe('PENDING_VERIFICATION');
+    expect(user.primaryPhone).toBeNull();
+    expect(user.marketingConsent).toBe(false);
+    expect(user.marketingConsentUpdatedAt).toBeNull();
     expect(() => user.assertCanLogin()).toThrow('Invalid credentials');
     user.verifyEmail();
     expect(user.status).toBe('ACTIVE');
+  });
+
+  it('normalizes the primary phone and records an explicit marketing choice', () => {
+    const now = new Date('2026-11-19T12:00:00.000Z');
+    const user = User.register({
+      id: 'user-with-consent',
+      email: Email.create('consent@correounivalle.edu.co'),
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      primaryPhone: ' +57 300 1234567 ',
+      marketingConsent: true,
+      passwordHash: 'argon2-hash',
+      vinculationType: VinculationType.create('ESTUDIANTE'),
+      now,
+    });
+
+    expect(user.primaryPhone).toBe('+57 300 1234567');
+    expect(user.marketingConsent).toBe(true);
+    expect(user.marketingConsentUpdatedAt).toEqual(now);
+    expect(() =>
+      User.register({
+        id: 'user-invalid-phone',
+        email: Email.create('invalid-phone@correounivalle.edu.co'),
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        primaryPhone: 'not-a-phone',
+        passwordHash: 'argon2-hash',
+        vinculationType: VinculationType.create('ESTUDIANTE'),
+      }),
+    ).toThrow('Primary phone number is invalid');
+  });
+
+  it('updates and revokes marketing consent with a change timestamp', () => {
+    const user = createPendingUser();
+    const grantedAt = new Date('2026-11-19T12:00:00.000Z');
+    const revokedAt = new Date('2026-11-20T12:00:00.000Z');
+
+    user.updateProfile({ marketingConsent: true }, grantedAt);
+    expect(user.marketingConsent).toBe(true);
+    expect(user.marketingConsentUpdatedAt).toEqual(grantedAt);
+
+    user.updateProfile({ marketingConsent: false }, revokedAt);
+    expect(user.marketingConsent).toBe(false);
+    expect(user.marketingConsentUpdatedAt).toEqual(revokedAt);
+  });
+
+  it('updates or clears the primary phone on the profile', () => {
+    const user = createPendingUser();
+
+    user.updateProfile({ primaryPhone: '+57 300 1234567' });
+    expect(user.primaryPhone).toBe('+57 300 1234567');
+
+    user.updateProfile({ primaryPhone: null });
+    expect(user.primaryPhone).toBeNull();
   });
 
   it('allows at most one default address and promotes another when deleting it', () => {

@@ -38,6 +38,8 @@ export class RegisterUser {
       email,
       firstName: command.firstName,
       lastName: command.lastName,
+      primaryPhone: command.primaryPhone,
+      marketingConsent: command.marketingConsent,
       passwordHash,
       vinculationType: VinculationType.create(command.vinculationType),
     });

@@ -78,6 +78,8 @@ describe('Auth use cases', () => {
       email: 'ada@correounivalle.edu.co',
       firstName: 'Ada',
       lastName: 'Lovelace',
+      primaryPhone: '+57 300 1234567',
+      marketingConsent: true,
       password: 'Univalle1!',
       vinculationType: 'ESTUDIANTE',
     });
@@ -90,6 +92,8 @@ describe('Auth use cases', () => {
     expect(sender.links).toHaveLength(1);
     const user = await repository.findByEmail('ada@correounivalle.edu.co');
     expect(user?.role).toBe('CUSTOMER');
+    expect(user?.primaryPhone).toBe('+57 300 1234567');
+    expect(user?.marketingConsent).toBe(true);
     expect(user?.passwordHash).not.toContain('Univalle1!');
 
     const token = new URL(sender.links[0]!).searchParams.get('token')!;
