@@ -1,6 +1,8 @@
 export interface AppConfig {
   readonly port: number;
   readonly usersServiceUrl: URL;
+  readonly catalogServiceUrl: URL;
+  readonly searchServiceUrl: URL;
   readonly observe?: {
     readonly appKey: string;
     readonly appSecret: string;
@@ -20,26 +22,21 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error('PORT must be an integer between 1 and 65535');
   }
 
-  let usersServiceUrl: URL;
-  try {
-    usersServiceUrl = new URL(env.USERS_SERVICE_URL ?? 'http://localhost:3002');
-  } catch (error) {
-    throw new Error('USERS_SERVICE_URL must be a valid absolute URL', {
-      cause: error,
-    });
-  }
-
-  if (
-    !['http:', 'https:'].includes(usersServiceUrl.protocol) ||
-    usersServiceUrl.username ||
-    usersServiceUrl.password ||
-    usersServiceUrl.search ||
-    usersServiceUrl.hash
-  ) {
-    throw new Error(
-      'USERS_SERVICE_URL must use HTTP(S) and cannot include credentials, a query, or a fragment',
-    );
-  }
+  const usersServiceUrl = loadServiceUrl(
+    env.USERS_SERVICE_URL,
+    'http://localhost:3002',
+    'USERS_SERVICE_URL',
+  );
+  const catalogServiceUrl = loadServiceUrl(
+    env.CATALOG_SERVICE_URL,
+    'http://localhost:3006',
+    'CATALOG_SERVICE_URL',
+  );
+  const searchServiceUrl = loadServiceUrl(
+    env.SEARCH_SERVICE_URL,
+    'http://localhost:3007',
+    'SEARCH_SERVICE_URL',
+  );
 
   const appKey = env.OBSERVE_APP_KEY?.trim();
   const appSecret = env.OBSERVE_APP_SECRET?.trim();
@@ -53,6 +50,37 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   return {
     port,
     usersServiceUrl,
+    catalogServiceUrl,
+    searchServiceUrl,
     ...(appKey && appSecret ? { observe: { appKey, appSecret } } : {}),
   };
+}
+
+function loadServiceUrl(
+  rawUrl: string | undefined,
+  defaultUrl: string,
+  variableName: string,
+): URL {
+  let serviceUrl: URL;
+  try {
+    serviceUrl = new URL(rawUrl ?? defaultUrl);
+  } catch (error) {
+    throw new Error(`${variableName} must be a valid absolute URL`, {
+      cause: error,
+    });
+  }
+
+  if (
+    !['http:', 'https:'].includes(serviceUrl.protocol) ||
+    serviceUrl.username ||
+    serviceUrl.password ||
+    serviceUrl.search ||
+    serviceUrl.hash
+  ) {
+    throw new Error(
+      `${variableName} must use HTTP(S) and cannot include credentials, a query, or a fragment`,
+    );
+  }
+
+  return serviceUrl;
 }
