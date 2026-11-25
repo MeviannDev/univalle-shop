@@ -10,11 +10,15 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiBadRequestResponse,
   ApiBody,
+  ApiForbiddenResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiTags,
+  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { CurrentUser } from '../../../../../../../common/decorators/current-user.decorator.js';
 import { Roles } from '../../../../../../../common/decorators/roles.decorator.js';
@@ -64,6 +68,8 @@ export class UsersController {
       'Devuelve el perfil del usuario autenticado y sus direcciones.',
   })
   @ApiOkResponse({ type: UserProfileResponseDto })
+  @ApiUnauthorizedResponse({ description: 'JWT ausente, inválido o expirado.' })
+  @ApiNotFoundResponse({ description: 'El usuario del JWT ya no existe.' })
   getMyProfile(@CurrentUser() user: AccessTokenClaims) {
     return this.getProfile.execute(user.sub);
   }
@@ -90,6 +96,9 @@ export class UsersController {
     },
   })
   @ApiOkResponse({ type: UserProfileResponseDto })
+  @ApiBadRequestResponse({ description: 'Los datos enviados no son válidos.' })
+  @ApiUnauthorizedResponse({ description: 'JWT ausente, inválido o expirado.' })
+  @ApiNotFoundResponse({ description: 'El usuario del JWT ya no existe.' })
   updateMyProfile(
     @CurrentUser() user: AccessTokenClaims,
     @Body() body: UpdateProfileDto,
@@ -115,6 +124,10 @@ export class UsersController {
       },
     },
   })
+  @ApiBadRequestResponse({ description: 'El cuerpo de la solicitud no es válido.' })
+  @ApiUnauthorizedResponse({ description: 'JWT ausente, inválido o expirado.' })
+  @ApiNotFoundResponse({ description: 'El usuario no existe.' })
+  @ApiForbiddenResponse({ description: 'El usuario no tiene permisos.' })
   async changeMyPassword(
     @CurrentUser() user: AccessTokenClaims,
     @Body() body: ChangePasswordDto,

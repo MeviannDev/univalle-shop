@@ -26,6 +26,10 @@ Al integrar un servicio nuevo, configura su dirección y define las rutas que el
 gateway debe reenviarle. Si el gateway es el punto de entrada público, evita
 exponer directamente los servicios backend.
 
+Actualmente el proxy solo publica rutas de Users (`/auth/*` y `/users/*`).
+Orders, Catalog, Payments, Search y Recommendations todavía no están publicados
+por el Gateway.
+
 ## Health checks
 
 - `GET /health`: indica si el proceso del gateway está activo.

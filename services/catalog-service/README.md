@@ -77,6 +77,20 @@ Ejemplo de creación:
 errores de validación devuelven `400`; los IDs inválidos devuelven `400` y los
 productos inexistentes devuelven `404`.
 
+### Contrato consumido por Orders
+
+Catalog no tiene prefijo global `api`; Orders debe consultar
+`GET /products/:id` en el puerto interno del servicio. La respuesta real contiene
+`id`, `name`, `description`, `price` (número), `stock` (entero) y `active`
+(booleano), además de categoría, imágenes y fechas. Un ID inválido responde
+`400`; un producto inexistente responde `404`. Orders interpreta `active` como
+disponibilidad y valida la cantidad contra el stock.
+
+La API actual no expone moneda en el producto ni endpoints para reservar,
+confirmar o liberar stock. El contrato objetivo para checkout se añade con la
+integración de inventario; hasta entonces, consultar stock no garantiza una
+reserva ni previene overselling concurrente.
+
 ## Verificación
 
 ```bash
