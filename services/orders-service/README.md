@@ -21,9 +21,11 @@ desarrollo aislado, conserva `USERS_ADAPTER`, `CATALOG_ADAPTER` y
 `APPROVED` o `REJECTED`.
 
 Para una integración real, cambia los adaptadores a `http` y define las URLs
-de los servicios. Las rutas y esquemas usados por los adaptadores HTTP están
-descritos en [docs/SDD.md](./docs/SDD.md); deben confirmarse con los servicios
-compañeros antes de desplegar.
+de los servicios. `JWT_SECRET` debe coincidir exactamente con Users; Orders
+valida la firma localmente y consulta `GET /users/me` para verificar el estado
+y rol vigentes. La integración usa Users en `3002`, Catalog en `3006` y Payments
+en `3003` durante el desarrollo local. El contrato observado y las diferencias
+por cerrar están en [docs/SDD.md](./docs/SDD.md).
 
 Los tokens de desarrollo se pueden solicitar en `POST /api/dev/auth/token`
 solo si `NODE_ENV` no es `production` y `USERS_ADAPTER=stub`, enviando, por

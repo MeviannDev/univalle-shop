@@ -5,7 +5,7 @@ import type { UserRole } from '../../domain/ports/outbound/user-service.port.js'
 
 export type JwtClaims = {
   sub: string;
-  email?: string;
+  email: string;
   role: UserRole;
   iss: 'users-service';
   iat: number;
@@ -41,6 +41,8 @@ export class JwtTokenVerifier {
       claims.iss !== 'users-service' ||
       typeof claims.sub !== 'string' ||
       !claims.sub.trim() ||
+      typeof claims.email !== 'string' ||
+      !claims.email.trim() ||
       !['ADMIN', 'CUSTOMER'].includes(claims.role) ||
       !Number.isSafeInteger(claims.exp) ||
       claims.exp <= now ||

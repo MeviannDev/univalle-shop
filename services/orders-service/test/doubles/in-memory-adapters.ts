@@ -24,7 +24,6 @@ import type {
 import type {
   AuthenticatedUser,
   UserServicePort,
-  UserSummary,
 } from '../../src/domain/ports/outbound/user-service.port.js';
 import { Cart } from '../../src/domain/entities/cart.js';
 import { Order } from '../../src/domain/entities/order.js';
@@ -165,16 +164,9 @@ export class FakeUsersService implements UserServicePort {
       userId,
       role,
       active: token !== 'inactive-token',
-      univalleAffiliation: 'STUDENT',
     };
   }
 
-  async getBasicUser(userId: UserId): Promise<UserSummary> {
-    if (this.failure) {
-      throw this.failure;
-    }
-    return { userId, role: 'CUSTOMER', active: true };
-  }
 }
 
 export class FakeCatalogService implements CatalogServicePort {

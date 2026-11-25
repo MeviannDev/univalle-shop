@@ -2,12 +2,17 @@ import { Injectable } from '@nestjs/common';
 import type {
   AuthenticatedUser,
   UserServicePort,
-  UserSummary,
 } from '../../domain/ports/outbound/user-service.port.js';
+import { InvalidUserTokenError } from '../../domain/errors/invalid-user-token.error.js';
 import { UserId } from '../../domain/value-objects/user-id.js';
-import { JwtTokenVerifier } from '../auth/jwt-token-verifier.js';
-import { adaptCall, asRecord, requiredString } from './external-error.mapper.js';
-import { HttpServiceClient } from './http-service-client.js';
+import { InvalidDependencyResponseError } from '../../application/errors/invalid-dependency-response.error.js';
+import { JwtTokenVerifier, type JwtClaims } from '../auth/jwt-token-verifier.js';
+import {
+  asRecord,
+  mapExternalError,
+  requiredString,
+} from './external-error.mapper.js';
+import { ExternalHttpError, HttpServiceClient } from './http-service-client.js';
 
 @Injectable()
 export class UsersHttpAdapter implements UserServicePort {
@@ -17,45 +22,45 @@ export class UsersHttpAdapter implements UserServicePort {
   ) {}
 
   async validateToken(token: string): Promise<AuthenticatedUser> {
-    const claims = this.verifier.verify(token);
-    const profile = await adaptCall('Usuarios', async () =>
-      asRecord(
-        await this.http.request('users', '/api/users/me', {
+    let claims: JwtClaims;
+    try {
+      claims = this.verifier.verify(token);
+    } catch {
+      throw new InvalidUserTokenError();
+    }
+
+    let profile: Record<string, unknown>;
+    try {
+      profile = asRecord(
+        await this.http.request('users', '/users/me', {
           token,
           idempotent: true,
         }),
-      ),
-    );
-    const role = requiredString(profile.role, 'role');
-    const userId = requiredString(profile.id ?? profile.userId ?? profile.sub, 'userId');
-    if (userId !== claims.sub || role !== claims.role) {
-      throw new Error('Las claims JWT no coinciden con el perfil de Usuarios');
+      );
+    } catch (error) {
+      if (error instanceof ExternalHttpError && [401, 404].includes(error.status)) {
+        throw new InvalidUserTokenError();
+      }
+      throw mapExternalError('Usuarios', error);
     }
-    return {
-      userId: new UserId(claims.sub),
-      role: claims.role,
-      active: profile.active === true || profile.status === 'ACTIVE',
-    };
-  }
 
-  async getBasicUser(userId: UserId): Promise<UserSummary> {
-    const profile = await adaptCall('Usuarios', async () =>
-      asRecord(
-        await this.http.request(
-          'users',
-          `/api/users/${encodeURIComponent(userId.value)}`,
-          { idempotent: true },
-        ),
-      ),
-    );
+    const userId = requiredString(profile.id, 'id');
     const role = requiredString(profile.role, 'role');
-    if (role !== 'ADMIN' && role !== 'CUSTOMER') {
-      throw new Error('Rol inválido en respuesta de Usuarios');
+    const status = requiredString(profile.status, 'status');
+    if (userId !== claims.sub) {
+      throw new InvalidUserTokenError();
     }
+    if (role !== 'ADMIN' && role !== 'CUSTOMER') {
+      throw new InvalidDependencyResponseError('Usuarios (role)');
+    }
+    if (!['ACTIVE', 'SUSPENDED', 'PENDING_VERIFICATION'].includes(status)) {
+      throw new InvalidDependencyResponseError('Usuarios (status)');
+    }
+
     return {
-      userId: new UserId(requiredString(profile.id ?? profile.userId, 'userId')),
+      userId: new UserId(userId),
       role,
-      active: profile.active === true || profile.status === 'ACTIVE',
+      active: status === 'ACTIVE',
     };
   }
 }
