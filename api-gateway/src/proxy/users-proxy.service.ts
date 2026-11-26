@@ -8,6 +8,7 @@ const REQUEST_HEADERS = [
   'authorization',
   'content-type',
   'cookie',
+  'idempotency-key',
   'user-agent',
   'x-request-id',
 ];

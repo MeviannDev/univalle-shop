@@ -24,11 +24,12 @@ El proxy de Users usa `USERS_SERVICE_URL` (por defecto
 por lo que esa parte debe incluirse en la URL de destino. Las URLs deben ser
 absolutas y usar HTTP o HTTPS.
 
-El Gateway publica `/auth/*` y `/users/*` hacia Users y `/orders/*` hacia Orders.
-Las rutas de Orders se reenvían conservando el prefijo del servicio; por ejemplo,
-`GET /orders` llega a `GET /api/orders`. Catalog, Payments, Search y
-Recommendations no se publican mediante el Gateway. Si el Gateway es el punto
-de entrada público, evita exponer directamente los servicios backend.
+El Gateway publica `/auth/*` y `/users/*` hacia Users, y `/cart/*`,
+`/orders/*` y `/admin/orders/*` hacia Orders. Las rutas de Orders se reenvían
+conservando el prefijo del servicio; por ejemplo, `GET /orders` llega a
+`GET /api/orders`. Catalog, Payments, Search y Recommendations no se publican
+mediante el Gateway. Si el Gateway es el punto de entrada público, evita
+exponer directamente los servicios backend.
 
 ## Docker Compose
 
@@ -56,6 +57,7 @@ desarrollo; configúralas mediante variables de entorno antes de un despliegue.
 
 - `POST http://localhost:3000/auth/login`
 - `GET http://localhost:3000/users/me` (requiere token Bearer)
+- `GET http://localhost:3000/cart` (requiere token Bearer)
 - `GET http://localhost:3000/orders` (requiere token Bearer)
 
 La telemetría de NestJS Observe está desactivada si no se configuran credenciales.

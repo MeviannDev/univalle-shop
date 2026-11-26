@@ -39,19 +39,26 @@ describe('API Gateway (e2e)', () => {
       .expect({ status: 'ok' });
   });
 
-  it('forwards Orders routes to the prefixed service URL', async () => {
+  it.each([
+    ['/orders/order-1?expand=items', 'http://orders.internal:3001/api/orders/order-1?expand=items'],
+    ['/cart/items', 'http://orders.internal:3001/api/cart/items'],
+    ['/admin/orders', 'http://orders.internal:3001/api/admin/orders'],
+  ])('forwards %s to Orders with its API prefix', async (path, targetUrl) => {
     await request(app.getHttpServer())
-      .get('/orders/order-1?expand=items')
+      .get(path)
       .set('Authorization', 'Bearer customer-token')
+      .set('Idempotency-Key', 'checkout-key')
       .expect(200)
       .expect({ id: 'order-1' });
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock.mock.calls[0]?.[0].toString()).toBe(
-      'http://orders.internal:3001/api/orders/order-1?expand=items',
-    );
-    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get('authorization'))
-      .toBe('Bearer customer-token');
+    expect(fetchMock.mock.calls[0]?.[0].toString()).toBe(targetUrl);
+    expect(
+      new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get('authorization'),
+    ).toBe('Bearer customer-token');
+    expect(
+      new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get('idempotency-key'),
+    ).toBe('checkout-key');
   });
 
   afterEach(async () => {

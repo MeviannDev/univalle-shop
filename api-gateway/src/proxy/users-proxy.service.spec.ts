@@ -22,6 +22,7 @@ describe('UsersProxyService', () => {
       headers: {
         authorization: 'Bearer access-token',
         'content-type': 'application/json',
+        'idempotency-key': 'checkout-key',
       },
       body: { email: 'user@example.com', password: 'secret' },
     } as Request;
@@ -36,6 +37,9 @@ describe('UsersProxyService', () => {
     expect(options.method).toBe('POST');
     expect(new Headers(options.headers).get('authorization')).toBe(
       'Bearer access-token',
+    );
+    expect(new Headers(options.headers).get('idempotency-key')).toBe(
+      'checkout-key',
     );
     expect(options.body).toBe(
       JSON.stringify({ email: 'user@example.com', password: 'secret' }),

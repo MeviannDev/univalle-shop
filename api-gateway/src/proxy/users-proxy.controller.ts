@@ -23,7 +23,14 @@ export class UsersProxyController {
     );
   }
 
-  @All(['orders', 'orders/{*path}'])
+  @All([
+    'cart',
+    'cart/{*path}',
+    'orders',
+    'orders/{*path}',
+    'admin/orders',
+    'admin/orders/{*path}',
+  ])
   async proxyOrders(
     @Req() request: Request,
     @Res() response: Response,
