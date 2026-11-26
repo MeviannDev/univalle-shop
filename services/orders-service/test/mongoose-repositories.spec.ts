@@ -93,8 +93,19 @@ describe('Mongoose repositories against MongoDB replica set', () => {
     order.recordPaymentEvent('event-1');
     await orderRepository.save(order);
 
-    expect(await orderRepository.savePaymentResultOnce(order, 'event-1')).toBe(true);
-    expect(await orderRepository.savePaymentResultOnce(order, 'event-1')).toBe(false);
+    const event = {
+      eventId: 'event-1',
+      paymentId: 'payment-1',
+      result: 'APPROVED' as const,
+    };
+    expect(await orderRepository.savePaymentResultOnce(order, event)).toBe('saved');
+    expect(await orderRepository.savePaymentResultOnce(order, event)).toBe('duplicate');
+    expect(
+      await orderRepository.savePaymentResultOnce(order, {
+        ...event,
+        result: 'REJECTED',
+      }),
+    ).toBe('conflict');
     expect(await eventModel.countDocuments({ eventId: 'event-1' })).toBe(1);
   });
 

@@ -30,8 +30,31 @@ export class ApplyPaymentResult {
     if (!order) {
       throw new OrderNotFoundError();
     }
-    if (order.paymentId !== result.paymentId) {
+    if (order.paymentId && order.paymentId !== result.paymentId) {
       throw new InvalidPaymentResultError();
+    }
+    if (!order.paymentId) {
+      if (order.status.value !== 'PENDING_PAYMENT') {
+        throw new InvalidPaymentResultError(
+          'No se puede asociar un pago a una orden que ya no está pendiente.',
+        );
+      }
+      order.setPaymentId(result.paymentId);
+    }
+    const existingEvent = await callExternal('Persistencia de órdenes', () =>
+      this.orders.findPaymentEvent(result.eventId),
+    );
+    if (existingEvent) {
+      if (
+        existingEvent.orderId !== result.orderId.value ||
+        existingEvent.paymentId !== result.paymentId ||
+        existingEvent.result !== result.result
+      ) {
+        throw new InvalidPaymentResultError(
+          'El evento de pago ya fue registrado con otros datos.',
+        );
+      }
+      return { order, duplicate: true };
     }
     if (order.hasProcessedPaymentEvent(result.eventId)) {
       return { order, duplicate: true };
@@ -45,9 +68,14 @@ export class ApplyPaymentResult {
       (result.result === 'PENDING' && order.status.value !== 'PENDING_PAYMENT');
     if (alreadySettled) {
       order.recordPaymentEvent(result.eventId);
-      await callExternal('Persistencia de órdenes', () =>
-        this.orders.savePaymentResultOnce(order, result.eventId),
+      const saved = await callExternal('Persistencia de órdenes', () =>
+        this.orders.savePaymentResultOnce(order, result),
       );
+      if (saved === 'conflict') {
+        throw new InvalidPaymentResultError(
+          'El evento de pago ya fue registrado con otros datos.',
+        );
+      }
       return { order, duplicate: true };
     }
 
@@ -74,8 +102,13 @@ export class ApplyPaymentResult {
     }
     order.recordPaymentEvent(result.eventId);
     const saved = await callExternal('Persistencia de órdenes', () =>
-      this.orders.savePaymentResultOnce(order, result.eventId),
+      this.orders.savePaymentResultOnce(order, result),
     );
-    return { order, duplicate: !saved };
+    if (saved === 'conflict') {
+      throw new InvalidPaymentResultError(
+        'El evento de pago ya fue registrado con otros datos.',
+      );
+    }
+    return { order, duplicate: saved === 'duplicate' };
   }
 }

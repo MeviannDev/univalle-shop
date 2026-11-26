@@ -8,6 +8,9 @@ import type {
   OrderRepository,
   Page,
   PageRequest,
+  PaymentEventInput,
+  ProcessedPaymentEvent,
+  SavePaymentResultOutcome,
   SaveIdempotentOrderResult,
 } from '../../../domain/ports/outbound/order-repository.port.js';
 import type { OrderId } from '../../../domain/value-objects/order-id.js';
@@ -75,14 +78,32 @@ export class MongooseOrderRepository implements OrderRepository {
     }
   }
 
-  async savePaymentResultOnce(order: Order, eventId: string): Promise<boolean> {
+  async findPaymentEvent(eventId: string): Promise<ProcessedPaymentEvent | null> {
+    const event = await this.paymentEvents.findOne({ eventId }).lean().exec();
+    return event
+      ? {
+          eventId: event.eventId,
+          orderId: event.orderId,
+          paymentId: event.paymentId,
+          result: event.result,
+        }
+      : null;
+  }
+
+  async savePaymentResultOnce(
+    order: Order,
+    event: PaymentEventInput,
+  ): Promise<SavePaymentResultOutcome> {
     const session = await this.connection.startSession();
     try {
       let saved = false;
       try {
         await session.withTransaction(async () => {
           await this.paymentEvents.create(
-            [{ eventId, orderId: order.id.value }],
+            [{
+              ...event,
+              orderId: order.id.value,
+            }],
             { session },
           );
 
@@ -100,11 +121,15 @@ export class MongooseOrderRepository implements OrderRepository {
         });
       } catch (error) {
         if (this.isDuplicateKey(error)) {
-          return false;
+          const existing = await this.findPaymentEvent(event.eventId);
+          if (!existing) throw error;
+          return this.matchesPaymentEvent(existing, order, event)
+            ? 'duplicate'
+            : 'conflict';
         }
         throw error;
       }
-      return saved;
+      return saved ? 'saved' : 'conflict';
     } finally {
       await session.endSession();
     }
@@ -155,5 +180,17 @@ export class MongooseOrderRepository implements OrderRepository {
   private isDuplicateKey(error: unknown): error is { code: number } {
     return typeof error === 'object' && error !== null && 'code' in error &&
       (error as { code?: unknown }).code === 11000;
+  }
+
+  private matchesPaymentEvent(
+    existing: ProcessedPaymentEvent,
+    order: Order,
+    event: PaymentEventInput,
+  ): boolean {
+    return (
+      existing.orderId === order.id.value &&
+      existing.paymentId === event.paymentId &&
+      existing.result === event.result
+    );
   }
 }

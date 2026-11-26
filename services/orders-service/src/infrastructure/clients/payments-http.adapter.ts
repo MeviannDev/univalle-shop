@@ -19,26 +19,34 @@ export class PaymentsHttpAdapter implements PaymentServicePort {
   async startPayment(request: StartPaymentRequest): Promise<PaymentInitiated> {
     return adaptCall('Pagos', async () => {
       const body = asRecord(
-        await this.http.request('payments', '/api/payments', {
+        await this.http.request('payments', '/payments/simulate', {
           method: 'POST',
           idempotent: true,
+          internal: true,
+          idempotencyKey: request.idempotencyKey,
           body: {
             orderId: request.orderId.value,
             userId: request.userId.value,
-            amount: {
-              amount: request.amount.amount,
-              currency: request.amount.currency,
-            },
-            idempotencyKey: request.idempotencyKey,
+            amount: request.amount.amount,
+            currency: request.amount.currency,
+            method: 'card',
           },
         }),
       );
-      const status = requiredString(body.status, 'status');
-      if (!['PENDING', 'APPROVED', 'REJECTED'].includes(status)) {
+      const rawStatus = requiredString(body.status, 'status').toLowerCase();
+      const status =
+        rawStatus === 'approved'
+          ? 'APPROVED'
+          : rawStatus === 'rejected'
+            ? 'REJECTED'
+            : rawStatus === 'pending' || rawStatus === 'processing'
+              ? 'PENDING'
+              : null;
+      if (!status) {
         throw new InvalidDependencyResponseError('Pagos');
       }
       return {
-        paymentId: requiredString(body.paymentId, 'paymentId'),
+        paymentId: requiredString(body.id, 'id'),
         status: status as PaymentInitiated['status'],
       };
     });
@@ -52,13 +60,14 @@ export class PaymentsHttpAdapter implements PaymentServicePort {
     await adaptCall('Pagos', () =>
       this.http.request(
         'payments',
-        `/api/payments/${encodeURIComponent(request.paymentId)}/cancel`,
+        `/payments/${encodeURIComponent(request.paymentId)}/cancel`,
         {
           method: 'POST',
           idempotent: true,
+          internal: true,
+          idempotencyKey: request.idempotencyKey,
           body: {
             orderId: request.orderId.value,
-            idempotencyKey: request.idempotencyKey,
           },
         },
       ),

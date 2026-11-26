@@ -14,6 +14,9 @@ import type {
   OrderRepository,
   Page,
   PageRequest,
+  PaymentEventInput,
+  ProcessedPaymentEvent,
+  SavePaymentResultOutcome,
   SaveIdempotentOrderResult,
 } from '../../src/domain/ports/outbound/order-repository.port.js';
 import type {
@@ -58,7 +61,7 @@ export class InMemoryCartRepository implements CartRepository {
 export class InMemoryOrderRepository implements OrderRepository {
   readonly orders = new Map<string, Order>();
   readonly idempotency = new Map<string, string>();
-  readonly paymentEvents = new Set<string>();
+  readonly paymentEvents = new Map<string, ProcessedPaymentEvent>();
   failure: Error | null = null;
 
   async findById(id: OrderId): Promise<Order | null> {
@@ -92,14 +95,30 @@ export class InMemoryOrderRepository implements OrderRepository {
     return { order, created: true };
   }
 
-  async savePaymentResultOnce(order: Order, eventId: string): Promise<boolean> {
+  async findPaymentEvent(eventId: string): Promise<ProcessedPaymentEvent | null> {
     this.throwIfFailed();
-    if (this.paymentEvents.has(eventId)) {
-      return false;
+    return this.paymentEvents.get(eventId) ?? null;
+  }
+
+  async savePaymentResultOnce(
+    order: Order,
+    event: PaymentEventInput,
+  ): Promise<SavePaymentResultOutcome> {
+    this.throwIfFailed();
+    const existing = this.paymentEvents.get(event.eventId);
+    if (existing) {
+      return existing.orderId === order.id.value &&
+        existing.paymentId === event.paymentId &&
+        existing.result === event.result
+        ? 'duplicate'
+        : 'conflict';
     }
-    this.paymentEvents.add(eventId);
+    this.paymentEvents.set(event.eventId, {
+      ...event,
+      orderId: order.id.value,
+    });
     this.orders.set(order.id.value, order);
-    return true;
+    return 'saved';
   }
 
   async listByUser(

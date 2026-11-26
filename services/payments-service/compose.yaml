@@ -3,11 +3,12 @@ services:
     image: mongo:8
     restart: unless-stopped
     ports:
-      - "127.0.0.1:27019:27017"
+      - '127.0.0.1:27019:27017'
     volumes:
       - mongo-payments-data:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      test:
+        ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping').ok"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -19,12 +20,20 @@ services:
       mongodb-payments:
         condition: service_healthy
     ports:
-      - "127.0.0.1:3003:3003"
+      - '127.0.0.1:3003:3003'
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3003
-      MONGODB_URI: ${MONGODB_URI:-mongodb+srv://univalle-admin:<db_password>@cluster0.no82gn4.mongodb.net/univalle_payments?retryWrites=true&w=majority}
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongodb-payments:27017/univalle_payments}
+      MONGODB_DATABASE: ${MONGODB_DATABASE:-univalle_payments}
       PAYMENTS_SERVICE_URL: ${PAYMENTS_SERVICE_URL:-http://localhost:3003}
+      INTERNAL_SERVICE_API_KEY: ${INTERNAL_SERVICE_API_KEY:-development-only-internal-api-key-change-before-deploy}
+      PAYMENT_SIMULATION_RESULT: ${PAYMENT_SIMULATION_RESULT:-auto}
+      PAYMENT_CALLBACK_ENABLED: ${PAYMENT_CALLBACK_ENABLED:-false}
+      ORDERS_CALLBACK_BASE_URL: ${ORDERS_CALLBACK_BASE_URL:-http://orders-service:3001/api/orders}
+      PAYMENT_CALLBACK_POLL_INTERVAL_MS: ${PAYMENT_CALLBACK_POLL_INTERVAL_MS:-1000}
+      PAYMENT_CALLBACK_TIMEOUT_MS: ${PAYMENT_CALLBACK_TIMEOUT_MS:-3000}
+      PAYMENT_CALLBACK_MAX_ATTEMPTS: ${PAYMENT_CALLBACK_MAX_ATTEMPTS:-10}
 
 volumes:
   mongo-payments-data:

@@ -1,28 +1,57 @@
-import { Body, Controller, Get, Inject, Param, Post } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Headers,
+  HttpCode,
+  HttpStatus,
+  Inject,
+  Param,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBody,
   ApiCreatedResponse,
+  ApiHeader,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
+  ApiUnauthorizedResponse,
+  ApiConflictResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { CancelPaymentUseCase } from '../../../application/use-cases/cancel-payment.use-case.js';
+import { CancelPaymentDto } from '../../../application/dtos/cancel-payment.dto.js';
 import { CreatePaymentDto } from '../../../application/dtos/create-payment.dto.js';
 import { ProcessPaymentUseCase } from '../../../application/use-cases/process-payment.use-case.js';
-import { PAYMENT_REPOSITORY_PORT, type PaymentRepositoryPort } from '../../../domain/ports/payment.repository.js';
+import {
+  PAYMENT_REPOSITORY_PORT,
+  type PaymentRepositoryPort,
+} from '../../../domain/ports/payment.repository.js';
+import { InternalApiKeyGuard } from '../internal-api-key.guard.js';
 
 @ApiTags('Payments')
 @Controller('payments')
 export class PaymentController {
   constructor(
     private readonly processPaymentUseCase: ProcessPaymentUseCase,
+    private readonly cancelPaymentUseCase: CancelPaymentUseCase,
     @Inject(PAYMENT_REPOSITORY_PORT)
     private readonly paymentRepository: PaymentRepositoryPort,
   ) {}
 
   @Post('simulate')
+  @UseGuards(InternalApiKeyGuard)
   @ApiOperation({ summary: 'Simula un pago de una orden' })
+  @ApiHeader({ name: 'X-Internal-Api-Key', required: true })
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: true,
+    example: 'checkout-2026-0001',
+  })
   @ApiBody({
     type: CreatePaymentDto,
     examples: {
@@ -53,8 +82,50 @@ export class PaymentController {
     },
   })
   @ApiBadRequestResponse({ description: 'Los campos del pago no son válidos.' })
-  async simulatePayment(@Body() createPaymentDto: CreatePaymentDto) {
-    return this.processPaymentUseCase.execute(createPaymentDto);
+  @ApiUnauthorizedResponse({ description: 'API key interna inválida.' })
+  @ApiConflictResponse({
+    description: 'La clave de idempotencia ya se usó con otros datos.',
+  })
+  async simulatePayment(
+    @Body() createPaymentDto: CreatePaymentDto,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+  ) {
+    if (!idempotencyKey) {
+      throw new BadRequestException(
+        'El header Idempotency-Key es obligatorio.',
+      );
+    }
+    return this.processPaymentUseCase.execute(createPaymentDto, idempotencyKey);
+  }
+
+  @Post(':id/cancel')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(InternalApiKeyGuard)
+  @ApiOperation({ summary: 'Cancelar o reembolsar el pago de una orden' })
+  @ApiHeader({ name: 'X-Internal-Api-Key', required: true })
+  @ApiHeader({ name: 'Idempotency-Key', required: true })
+  @ApiBody({ type: CancelPaymentDto })
+  @ApiOkResponse({
+    description: 'Pago cancelado o reembolsado idempotentemente.',
+  })
+  @ApiBadRequestResponse({
+    description: 'Falta una clave de idempotencia válida.',
+  })
+  @ApiUnauthorizedResponse({ description: 'API key interna inválida.' })
+  @ApiConflictResponse({
+    description: 'El pago ya fue cancelado con otra clave.',
+  })
+  async cancelPayment(
+    @Param('id') id: string,
+    @Body() body: CancelPaymentDto,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+  ) {
+    if (!idempotencyKey) {
+      throw new BadRequestException(
+        'El header Idempotency-Key es obligatorio.',
+      );
+    }
+    return this.cancelPaymentUseCase.execute(id, body.orderId, idempotencyKey);
   }
 
   @Get(':id')

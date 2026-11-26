@@ -16,6 +16,7 @@ import {
   ExternalServiceUnavailableError,
   ForbiddenAccessError,
   ForbiddenOrderAccessError,
+  InvalidPaymentResultError,
   InvalidPaginationError,
   OrderNotFoundError,
   ProductUnavailableError,
@@ -379,6 +380,9 @@ describe('casos de uso de órdenes', () => {
     const duplicate = await useCase.execute({ result: event });
     expect(first.order.status.value).toBe('PAID');
     expect(duplicate.duplicate).toBe(true);
+    await expect(
+      useCase.execute({ result: { ...event, result: 'REJECTED' } }),
+    ).rejects.toBeInstanceOf(InvalidPaymentResultError);
   });
 
   it('ApplyPaymentResult libera stock ante rechazo y rechaza una referencia de pago ajena', async () => {
@@ -406,6 +410,40 @@ describe('casos de uso de órdenes', () => {
     });
     expect(rejected.order.status.value).toBe('PAYMENT_FAILED');
     expect(state.catalog.products.get(productId.value)?.stock).toBe(10);
+  });
+
+  it('ApplyPaymentResult recupera una aprobación si se perdió la respuesta de inicio', async () => {
+    const state = fixture();
+    const order = Order.createFromCart(
+      new OrderId('order-response-lost'),
+      createCart(),
+      state.clock.now(),
+      userId.value,
+    );
+    const reservationId = 'reservation-response-lost';
+    await state.catalog.reserveStock({
+      reservationId,
+      productId,
+      quantity: new Quantity(2),
+    });
+    order.addReservationId(reservationId);
+    await state.orders.save(order);
+
+    const result = await new ApplyPaymentResult(
+      state.orders,
+      state.catalog,
+    ).execute({
+      result: {
+        paymentId: 'payment-recovered',
+        orderId: order.id,
+        result: 'APPROVED',
+        eventId: 'event-recovered',
+      },
+    });
+
+    expect(result.order.paymentId).toBe('payment-recovered');
+    expect(result.order.status.value).toBe('PAID');
+    expect(state.catalog.products.get(productId.value)?.stock).toBe(8);
   });
 });
 

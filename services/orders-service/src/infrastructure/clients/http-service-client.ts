@@ -28,6 +28,7 @@ export class HttpServiceClient {
       body?: unknown;
       idempotent?: boolean;
       internal?: boolean;
+      idempotencyKey?: string;
     } = {},
   ): Promise<T> {
     const baseUrl = this.config.getOrThrow<string>(`${service.toUpperCase()}_SERVICE_URL`);
@@ -54,6 +55,9 @@ export class HttpServiceClient {
             'x-internal-api-key',
             this.config.getOrThrow<string>('INTERNAL_SERVICE_API_KEY'),
           );
+        }
+        if (options.idempotencyKey) {
+          headers.set('idempotency-key', options.idempotencyKey);
         }
         const response = await fetch(new URL(path, baseUrl), {
           method: options.method ?? 'GET',

@@ -614,9 +614,16 @@ Orders.
 
 ### Pagos
 
-Payments actualmente expone `POST /payments/simulate` (sin prefijo `api`) con
-`orderId`, `userId`, `amount` numérico, `currency` y `method`. Devuelve `id` y
-`status` en minúsculas; no admite idempotencia ni envía callbacks.
+Payments expone `POST /payments/simulate` (sin prefijo global `api`) con
+`orderId`, `userId`, `amount` numérico, `currency` y `method`. Orders envía
+`X-Internal-Api-Key` e `Idempotency-Key`; la respuesta usa `id` y `status` en
+minúsculas, que el adaptador traduce al contrato interno. `PAYMENT_SIMULATION_RESULT`
+permite fijar `pending`, `approved` o `rejected` en pruebas; `auto` mantiene el
+comportamiento simulado por método. Payments persiste callback-eventos
+aprobados/rechazados y los reintenta con un `eventId` estable hasta el límite
+configurado, conservando el resultado original aunque el pago se cancele o
+reembolse antes de entregar el callback. `POST /payments/:id/cancel`
+cancela/reembolsa de forma idempotente.
 
 ```text
 startPayment(request: StartPaymentRequest): Promise<PaymentInitiated>
@@ -898,10 +905,11 @@ antes de implementar adaptadores o integrar los servicios compañeros.
   `stock` y `active`, sin moneda. Orders interpreta los precios en COP. Las
   rutas internas de reserva usan `X-Internal-Api-Key` compartida y transacciones
   locales al Catalog; el Compose de Catalog configura Mongo como replica set.
-- **Pagos (actual):** `POST /payments/simulate` devuelve `id` y estado
-  minúsculo. La API actual no admite clave idempotente, callbacks ni
-  cancelación/reembolso; esas capacidades forman parte de la integración
-  acordada y se documentan al implementarse.
+- **Pagos:** `POST /payments/simulate` requiere clave idempotente y API key
+  interna; las respuestas tienen estado minúsculo. La entrega de callbacks es
+  al menos una vez, con dedupe transaccional en Orders y reintentos limitados
+  persistidos en el outbox de Payments. Cancelación y reembolso usan una clave
+  idempotente propia.
 - **Callback:** Orders expone `POST /api/orders/:id/payment-result`, protegido
   por `X-Internal-Api-Key`; el evento requiere `eventId` estable para dedupe.
   La API key de ejemplo es solo local y no reemplaza identidad de servicio en
