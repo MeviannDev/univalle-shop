@@ -26,19 +26,15 @@ export class CatalogHttpAdapter implements CatalogServicePort {
       const body = asRecord(
         await this.http.request(
           'catalog',
-          `/api/products/${encodeURIComponent(productId.value)}`,
+          `/products/${encodeURIComponent(productId.value)}`,
           { idempotent: true },
         ),
       );
-      const price = asRecord(body.unitPrice ?? body.price);
       return {
         productId: productId,
         name: requiredString(body.name, 'name'),
-        unitPrice: new Money(
-          requiredNumber(price.amount, 'price.amount'),
-          requiredString(price.currency, 'price.currency'),
-        ),
-        available: body.available === true,
+        unitPrice: new Money(requiredNumber(body.price, 'price'), 'COP'),
+        available: body.active === true,
         stock: requiredNumber(body.stock, 'stock'),
       };
     });
@@ -56,23 +52,20 @@ export class CatalogHttpAdapter implements CatalogServicePort {
   async reserveStock(reservation: StockReservation): Promise<ReservationResult> {
     return adaptCall('Catálogo', async () => {
       const body = asRecord(
-        await this.http.request(
-          'catalog',
-          '/api/inventory/reservations',
-          {
-            method: 'POST',
-            idempotent: true,
-            body: {
-              reservationId: reservation.reservationId,
-              productId: reservation.productId.value,
-              quantity: reservation.quantity.value,
-            },
+        await this.http.request('catalog', '/inventory/reservations', {
+          method: 'POST',
+          idempotent: true,
+          internal: true,
+          body: {
+            reservationId: reservation.reservationId,
+            productId: reservation.productId.value,
+            quantity: reservation.quantity.value,
           },
-        ),
+        }),
       );
       return {
         reservationId: requiredString(body.reservationId, 'reservationId'),
-        reserved: body.reserved === true,
+        reserved: body.status === 'RESERVED',
       };
     });
   }
@@ -81,8 +74,8 @@ export class CatalogHttpAdapter implements CatalogServicePort {
     await adaptCall('Catálogo', () =>
       this.http.request(
         'catalog',
-        `/api/inventory/reservations/${encodeURIComponent(reservationId)}`,
-        { method: 'DELETE', idempotent: true },
+        `/inventory/reservations/${encodeURIComponent(reservationId)}`,
+        { method: 'DELETE', idempotent: true, internal: true },
       ),
     );
   }
@@ -91,8 +84,8 @@ export class CatalogHttpAdapter implements CatalogServicePort {
     await adaptCall('Catálogo', () =>
       this.http.request(
         'catalog',
-        `/api/inventory/reservations/${encodeURIComponent(reservationId)}/commit`,
-        { method: 'POST', idempotent: true, body: {} },
+        `/inventory/reservations/${encodeURIComponent(reservationId)}/commit`,
+        { method: 'POST', idempotent: true, internal: true, body: {} },
       ),
     );
   }

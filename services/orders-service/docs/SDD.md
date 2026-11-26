@@ -593,10 +593,24 @@ ProductSnapshot = {
 }
 ```
 
-La API actual no permite reservar ni confirmar/devolver stock. La integración
-añade al servicio Catalog endpoints de reserva atómica con `reservationId`,
-confirmación y liberación idempotentes; la API se documentará junto con su
-implementación en la fase de inventario.
+La integración añade rutas internas sin prefijo global `api`:
+
+- `POST /inventory/reservations`, con `reservationId`, `productId` y
+  `quantity`; devuelve estado `RESERVED`. Devuelve `400` ante un cuerpo
+  inválido, `401` si falta o no coincide `X-Internal-Api-Key`, `404` para
+  producto inexistente y `409` para stock insuficiente o referencia en
+  conflicto.
+- `POST /inventory/reservations/:reservationId/commit` confirma idempotentemente
+  la reserva; `404` para reserva inexistente y `409` si ya se liberó o el stock
+  reservado es inconsistente.
+- `DELETE /inventory/reservations/:reservationId` libera y repone stock;
+  devolverla repetidamente es seguro, y `409` si ya se confirmó.
+
+El API key debe compartirse entre Orders y Catalog. La reserva actualiza
+atómicamente el stock disponible, `reservedStock` y el registro de reserva en
+una transacción de MongoDB local al servicio Catalog. Este MongoDB debe usar
+replica set; no existe una transacción distribuida entre las bases de Catalog y
+Orders.
 
 ### Pagos
 
@@ -753,8 +767,8 @@ se leen como unidad y deben conservar consistencia con su raíz. La orden
 incrusta snapshots para que cambios posteriores del Catálogo no alteren el
 historial ni el importe cobrado.
 
-**Supuesto:** el dinero se almacena como entero en centavos/unidad menor y la
-moneda inicial es `COP`. Debe confirmarse con el equipo.
+El dinero se almacena como entero en la unidad menor y la moneda inicial
+confirmada por el equipo para esta integración es `COP`.
 
 ## 11. Flujo de checkout
 
@@ -880,10 +894,10 @@ antes de implementar adaptadores o integrar los servicios compañeros.
   `sub`, `email`, `role`, `iat` y `exp`. `GET /users/me` devuelve `id`, `role`
   y `status`; Users no tiene prefijo global ni ruta `/users/:id`. El secreto
   debe ser el mismo en ambos servicios.
-- **Catálogo (actual):** `GET /products/:id` devuelve `id`, `name`, precio
-  numérico, `stock` y `active`, sin moneda. El equipo confirmó COP para esta
-  integración. La reserva idempotente y atómica requiere nuevas rutas internas
-  de Catalog.
+- **Catálogo:** `GET /products/:id` devuelve `id`, `name`, precio numérico,
+  `stock` y `active`, sin moneda. Orders interpreta los precios en COP. Las
+  rutas internas de reserva usan `X-Internal-Api-Key` compartida y transacciones
+  locales al Catalog; el Compose de Catalog configura Mongo como replica set.
 - **Pagos (actual):** `POST /payments/simulate` devuelve `id` y estado
   minúsculo. La API actual no admite clave idempotente, callbacks ni
   cancelación/reembolso; esas capacidades forman parte de la integración

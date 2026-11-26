@@ -23,6 +23,9 @@ export class ProductSchema {
   @Prop({ required: true, min: 0, validate: Number.isInteger })
   stock!: number;
 
+  @Prop({ default: 0, min: 0, validate: Number.isInteger })
+  reservedStock!: number;
+
   @Prop({ default: true })
   active!: boolean;
 

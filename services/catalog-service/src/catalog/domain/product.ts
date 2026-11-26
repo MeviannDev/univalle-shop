@@ -78,3 +78,10 @@ export class ProductNotFoundError extends Error {
     this.name = ProductNotFoundError.name;
   }
 }
+
+export class ProductHasActiveReservationsError extends Error {
+  constructor() {
+    super('No se puede eliminar un producto con reservas activas.');
+    this.name = ProductHasActiveReservationsError.name;
+  }
+}

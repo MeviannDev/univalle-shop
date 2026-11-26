@@ -27,6 +27,12 @@ y rol vigentes. La integración usa Users en `3002`, Catalog en `3006` y Payment
 en `3003` durante el desarrollo local. El contrato observado y las diferencias
 por cerrar están en [docs/SDD.md](./docs/SDD.md).
 
+Orders consulta el producto con `GET /products/:id` y utiliza las rutas
+internas de reserva de Catalog (`POST /inventory/reservations`, `POST
+/inventory/reservations/:id/commit` y `DELETE /inventory/reservations/:id`).
+Configura `INTERNAL_SERVICE_API_KEY` con el mismo valor en ambos servicios.
+Catalog requiere MongoDB en modo replica set para las transacciones de stock.
+
 Los tokens de desarrollo se pueden solicitar en `POST /api/dev/auth/token`
 solo si `NODE_ENV` no es `production` y `USERS_ADAPTER=stub`, enviando, por
 ejemplo, `{"role":"CUSTOMER"}`. No se debe usar esta clave JWT de ejemplo ni

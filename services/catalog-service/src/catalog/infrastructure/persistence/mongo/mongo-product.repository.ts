@@ -3,17 +3,24 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import {
   Product,
+  ProductHasActiveReservationsError,
   type CreateProductData,
   type UpdateProductData,
 } from '../../../domain/product.js';
 import type { ProductRepository } from '../../../application/ports/product.repository.js';
 import { ProductSchema, type ProductDocument } from './product.schema.js';
+import {
+  InventoryReservationSchema,
+  type InventoryReservationDocument,
+} from './inventory-reservation.schema.js';
 
 @Injectable()
 export class MongoProductRepository implements ProductRepository {
   constructor(
     @InjectModel(ProductSchema.name)
     private readonly productModel: Model<ProductDocument>,
+    @InjectModel(InventoryReservationSchema.name)
+    private readonly reservationModel: Model<InventoryReservationDocument>,
   ) {}
 
   async create(data: CreateProductData): Promise<Product> {
@@ -42,8 +49,20 @@ export class MongoProductRepository implements ProductRepository {
   }
 
   async delete(id: string): Promise<boolean> {
-    const result = await this.productModel.deleteOne({ _id: id }).exec();
-    return result.deletedCount === 1;
+    const result = await this.productModel
+      .deleteOne({ _id: id, reservedStock: { $in: [0, null] } })
+      .exec();
+    if (result.deletedCount === 1) return true;
+
+    const productExists = await this.productModel.exists({ _id: id }).exec();
+    if (!productExists) return false;
+    const hasActiveReservation = await this.reservationModel
+      .exists({ productId: id, status: 'RESERVED' })
+      .exec();
+    if (hasActiveReservation) {
+      throw new ProductHasActiveReservationsError();
+    }
+    return false;
   }
 
   private toDomain(document: ProductDocument): Product {
