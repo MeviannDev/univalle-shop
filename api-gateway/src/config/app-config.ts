@@ -1,6 +1,7 @@
 export interface AppConfig {
   readonly port: number;
   readonly usersServiceUrl: URL;
+  readonly ordersServiceUrl: URL;
   readonly observe?: {
     readonly appKey: string;
     readonly appSecret: string;
@@ -20,26 +21,14 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error('PORT must be an integer between 1 and 65535');
   }
 
-  let usersServiceUrl: URL;
-  try {
-    usersServiceUrl = new URL(env.USERS_SERVICE_URL ?? 'http://localhost:3002');
-  } catch (error) {
-    throw new Error('USERS_SERVICE_URL must be a valid absolute URL', {
-      cause: error,
-    });
-  }
-
-  if (
-    !['http:', 'https:'].includes(usersServiceUrl.protocol) ||
-    usersServiceUrl.username ||
-    usersServiceUrl.password ||
-    usersServiceUrl.search ||
-    usersServiceUrl.hash
-  ) {
-    throw new Error(
-      'USERS_SERVICE_URL must use HTTP(S) and cannot include credentials, a query, or a fragment',
-    );
-  }
+  const usersServiceUrl = loadServiceUrl(
+    'USERS_SERVICE_URL',
+    env.USERS_SERVICE_URL ?? 'http://localhost:3002',
+  );
+  const ordersServiceUrl = loadServiceUrl(
+    'ORDERS_SERVICE_URL',
+    env.ORDERS_SERVICE_URL ?? 'http://localhost:3001/api',
+  );
 
   const appKey = env.OBSERVE_APP_KEY?.trim();
   const appSecret = env.OBSERVE_APP_SECRET?.trim();
@@ -53,6 +42,29 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   return {
     port,
     usersServiceUrl,
+    ordersServiceUrl,
     ...(appKey && appSecret ? { observe: { appKey, appSecret } } : {}),
   };
+}
+
+function loadServiceUrl(name: string, value: string): URL {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch (error) {
+    throw new Error(`${name} must be a valid absolute URL`, { cause: error });
+  }
+
+  if (
+    !['http:', 'https:'].includes(url.protocol) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error(
+      `${name} must use HTTP(S) and cannot include credentials, a query, or a fragment`,
+    );
+  }
+  return url;
 }

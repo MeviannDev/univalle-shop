@@ -93,9 +93,38 @@ describe('Mongoose repositories against MongoDB replica set', () => {
     order.recordPaymentEvent('event-1');
     await orderRepository.save(order);
 
-    expect(await orderRepository.savePaymentResultOnce(order, 'event-1')).toBe(true);
-    expect(await orderRepository.savePaymentResultOnce(order, 'event-1')).toBe(false);
+    const event = {
+      eventId: 'event-1',
+      paymentId: 'payment-1',
+      result: 'APPROVED' as const,
+    };
+    expect(await orderRepository.savePaymentResultOnce(order, event)).toBe('saved');
+    expect(await orderRepository.savePaymentResultOnce(order, event)).toBe('duplicate');
+    expect(
+      await orderRepository.savePaymentResultOnce(order, {
+        ...event,
+        result: 'REJECTED',
+      }),
+    ).toBe('conflict');
     expect(await eventModel.countDocuments({ eventId: 'event-1' })).toBe(1);
+  });
+
+  it('revierte el evento si falla la actualización de la orden en la transacción', async () => {
+    const userId = new UserId('customer-transaction-failure');
+    const missingOrder = Order.createFromCart(
+      new OrderId('order-does-not-exist'),
+      cartFor(userId),
+    );
+    const event = {
+      eventId: 'event-rollback',
+      paymentId: 'payment-rollback',
+      result: 'APPROVED' as const,
+    };
+
+    await expect(
+      orderRepository.savePaymentResultOnce(missingOrder, event),
+    ).rejects.toThrow('La orden dejó de existir al guardar el resultado de pago');
+    expect(await eventModel.countDocuments({ eventId: event.eventId })).toBe(0);
   });
 
   it('pagina resultados y aplica filtro de estado y usuario', async () => {

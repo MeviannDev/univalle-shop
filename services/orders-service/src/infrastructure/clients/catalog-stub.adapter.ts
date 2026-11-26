@@ -36,6 +36,8 @@ export class CatalogStubAdapter implements CatalogServicePort {
     ],
   ]);
   private readonly reservations = new Map<string, StockReservation>();
+  private readonly committed = new Map<string, StockReservation>();
+  private readonly returned = new Set<string>();
 
   async getProduct(productId: ProductId): Promise<ProductSnapshot> {
     const product = this.products.get(productId.value);
@@ -85,6 +87,30 @@ export class CatalogStubAdapter implements CatalogServicePort {
   }
 
   async commitStock(reservationId: string): Promise<void> {
+    const reservation = this.reservations.get(reservationId);
+    if (reservation) {
+      this.committed.set(reservationId, reservation);
+    }
     this.reservations.delete(reservationId);
+  }
+
+  async cancelStockReservation(reservationId: string): Promise<void> {
+    if (this.returned.has(reservationId)) return;
+    const reservation = this.committed.get(reservationId);
+    if (reservation) {
+      const product = await this.getProduct(reservation.productId);
+      this.products.set(product.productId.value, {
+        ...product,
+        stock: product.stock + reservation.quantity.value,
+      });
+      this.committed.delete(reservationId);
+      this.returned.add(reservationId);
+      return;
+    }
+    await this.releaseStock(reservationId);
+  }
+
+  async fulfillStockReservation(reservationId: string): Promise<void> {
+    this.committed.delete(reservationId);
   }
 }

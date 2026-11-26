@@ -222,6 +222,25 @@ Si no hay administrador, define `ADMIN_EMAIL` y `ADMIN_PASSWORD` en `.env` y rei
 
 El servicio valida los cuerpos de las solicitudes; rechaza propiedades no reconocidas y valores fuera de las reglas de cada campo. Las contraseñas deben tener al menos 8 caracteres, una mayúscula, un número y un símbolo. Las direcciones requieren calle, ciudad, departamento y un teléfono válido. Los errores de dominio se traducen a respuestas HTTP como `400`, `401`, `403`, `404` o `409`; un error `500` indica una excepción no controlada, que debe investigarse en la terminal donde corre el backend.
 
+### Contrato consumido por Orders
+
+Users no configura prefijo global `api`; Orders debe llamar al servicio por su
+URL interna, usando las rutas exactas:
+
+- `POST /auth/login`: `{ "email": "...", "password": "..." }`; devuelve
+  `{ "accessToken": "...", "user": { ... } }`. `400` indica DTO inválido,
+  `401` credenciales/cuenta no verificadas y `403` cuenta suspendida.
+- `GET /users/me`: requiere `Authorization: Bearer <accessToken>` y devuelve
+  el perfil con `id`, `role` (`CUSTOMER` o `ADMIN`) y `status`
+  (`PENDING_VERIFICATION`, `ACTIVE` o `SUSPENDED`). Responde `401` con token
+  inválido y `404` si el usuario del token ya no existe. El endpoint refleja el
+  estado; Orders debe permitir operaciones solo cuando `status` sea `ACTIVE`.
+
+El access token usa HS256, emisor `users-service`, claims `sub`, `email`,
+`role`, `iat` y `exp`, con vigencia de una hora. Los consumidores que validen
+la firma localmente deben compartir exactamente `JWT_SECRET` y validar emisor
+y expiración. No existe `GET /users/:id`; Orders no debe depender de esa ruta.
+
 ### Solución de problemas
 
 - **`ECONNREFUSED 127.0.0.1:1025` al registrar:** Mailpit u otro servidor SMTP no está ejecutándose o no escucha en ese puerto. Inicia Mailpit y comprueba la conexión con `Test-NetConnection 127.0.0.1 -Port 1025`.

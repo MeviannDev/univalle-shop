@@ -14,6 +14,7 @@ import {
   ApiBody,
   ApiBadRequestResponse,
   ApiCreatedResponse,
+  ApiConflictResponse,
   ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
@@ -146,6 +147,9 @@ export class ProductsController {
   })
   @ApiNoContentResponse({ description: 'Producto eliminado.' })
   @ApiBadRequestResponse({ description: 'El ID no es válido.' })
+  @ApiConflictResponse({
+    description: 'No se puede eliminar un producto con reservas activas.',
+  })
   @ApiNotFoundResponse({ description: 'No existe un producto con ese ID.' })
   delete(@Param('id', ParseProductIdPipe) id: string) {
     return this.deleteProduct.execute(id);

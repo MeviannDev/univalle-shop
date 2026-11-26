@@ -9,10 +9,25 @@ export function mapExternalError(service: string, error: unknown): Error {
   if (error instanceof ApplicationError || error instanceof DomainError) {
     return error;
   }
-  if (error instanceof ExternalHttpError && error.status === 404 && service === 'Catálogo') {
+  if (
+    error instanceof ExternalHttpError &&
+    error.status === 404 &&
+    service === 'Catálogo'
+  ) {
     return new ProductUnavailableError('desconocido');
   }
-  if (error instanceof ExternalHttpError && error.status >= 400 && error.status < 500) {
+  if (
+    error instanceof ExternalHttpError &&
+    error.status === 409 &&
+    service === 'Catálogo'
+  ) {
+    return new ProductUnavailableError('desconocido');
+  }
+  if (
+    error instanceof ExternalHttpError &&
+    error.status >= 400 &&
+    error.status < 500
+  ) {
     return new InvalidDependencyResponseError(service);
   }
   return new ExternalServiceUnavailableError(service, error);

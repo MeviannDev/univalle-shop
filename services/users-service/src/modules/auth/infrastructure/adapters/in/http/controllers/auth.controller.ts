@@ -6,7 +6,15 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { ApiBody, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBadRequestResponse,
+  ApiBody,
+  ApiForbiddenResponse,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
 import { Login } from '../../../../../application/use-cases/login.js';
 import { VerifyEmail } from '../../../../../application/use-cases/verify-email.js';
 import { RegisterUser } from '../../../../../../users/application/use-cases/register-user.js';
@@ -46,6 +54,7 @@ export class AuthController {
       },
     },
   })
+  @ApiBadRequestResponse({ description: 'El cuerpo o los datos de registro no son válidos.' })
   register(@Body() body: RegisterUserDto) {
     return this.registerUser.execute(body);
   }
@@ -65,6 +74,7 @@ export class AuthController {
       },
     },
   })
+  @ApiBadRequestResponse({ description: 'El token de verificación no es válido.' })
   verify(@Body() body: VerifyEmailDto) {
     return this.verifyEmail.execute(body.token);
   }
@@ -81,6 +91,7 @@ export class AuthController {
     description: 'Token de verificación recibido por correo.',
     example: 'pega-aqui-el-token-del-correo',
   })
+  @ApiBadRequestResponse({ description: 'Falta el token de verificación.' })
   verifyLink(@Query('token') token: string) {
     if (!token) throw new BadRequestException('Verification token is required');
     return this.verifyEmail.execute(token);
@@ -104,6 +115,9 @@ export class AuthController {
       },
     },
   })
+  @ApiBadRequestResponse({ description: 'El cuerpo de la solicitud no es válido.' })
+  @ApiUnauthorizedResponse({ description: 'Credenciales inválidas o correo no verificado.' })
+  @ApiForbiddenResponse({ description: 'La cuenta está suspendida.' })
   loginUser(@Body() body: LoginDto) {
     return this.login.execute(body.email, body.password);
   }

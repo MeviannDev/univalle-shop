@@ -87,7 +87,7 @@ const useCaseProviders = [
   },
   {
     provide: ApplyPaymentResult,
-    inject: [ORDER_REPOSITORY, CATALOG_SERVICE],
+    inject: [ORDER_REPOSITORY, CATALOG_SERVICE, PAYMENT_SERVICE],
     useFactory: (...dependencies: ConstructorParameters<typeof ApplyPaymentResult>) =>
       new ApplyPaymentResult(...dependencies),
   },

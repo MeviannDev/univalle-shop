@@ -5,6 +5,7 @@ export interface ReadinessResult {
   status: 'ok' | 'unavailable';
   services: {
     'users-service': 'available' | 'unavailable';
+    'orders-service': 'available' | 'unavailable';
   };
 }
 
@@ -13,28 +14,32 @@ export class HealthService {
   constructor(@Inject(APP_CONFIG) private readonly config: AppConfig) {}
 
   async checkReadiness(): Promise<ReadinessResult> {
-    const healthUrl = new URL(
-      `${this.config.usersServiceUrl.pathname.replace(/\/+$/, '')}/api/docs`,
-      this.config.usersServiceUrl.origin,
-    );
+    const [usersAvailable, ordersAvailable] = await Promise.all([
+      this.isAvailable(this.config.usersServiceUrl, '/api/docs'),
+      this.isAvailable(this.config.ordersServiceUrl, '/health'),
+    ]);
+    return {
+      status: usersAvailable && ordersAvailable ? 'ok' : 'unavailable',
+      services: {
+        'users-service': usersAvailable ? 'available' : 'unavailable',
+        'orders-service': ordersAvailable ? 'available' : 'unavailable',
+      },
+    };
+  }
 
+  private async isAvailable(baseUrl: URL, path: string): Promise<boolean> {
+    const basePath = baseUrl.pathname.replace(/\/+$/, '');
+    const healthUrl = new URL(
+      `${basePath}${path}`,
+      baseUrl.origin,
+    );
     try {
       const response = await fetch(healthUrl, {
         signal: AbortSignal.timeout(3000),
       });
-      const available = response.status < 500;
-
-      return {
-        status: available ? 'ok' : 'unavailable',
-        services: {
-          'users-service': available ? 'available' : 'unavailable',
-        },
-      };
+      return response.ok;
     } catch {
-      return {
-        status: 'unavailable',
-        services: { 'users-service': 'unavailable' },
-      };
+      return false;
     }
   }
 }

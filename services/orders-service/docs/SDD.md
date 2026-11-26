@@ -548,25 +548,34 @@ ni detalles de transporte.
 
 ### Usuarios
 
-**Implementa el adaptador:** compañero responsable de Usuarios, mediante un
-contrato REST o mecanismo interno acordado.
+Users expone `GET /users/me` sin prefijo global `api`. La respuesta contiene
+`id`, `role` (`CUSTOMER` o `ADMIN`) y `status`
+(`PENDING_VERIFICATION`, `ACTIVE` o `SUSPENDED`). Los errores observados son
+`401` para JWT inválido/expirado, `404` para usuario inexistente y `403` para
+operaciones prohibidas. El access JWT usa HS256, `iss=users-service`, claims
+`sub`, `email`, `role`, `iat` y `exp` con duración de una hora.
 
 ```text
 validateToken(token: string): Promise<AuthenticatedUser>
-getBasicUser(userId: UserId): Promise<UserSummary>
 
 AuthenticatedUser = {
   userId: UserId,
   role: UserRole,
   active: boolean,
-  univalleAffiliation: "STUDENT" | "TEACHER" | "STAFF"
+  status: "ACTIVE" | "SUSPENDED" | "PENDING_VERIFICATION"
 }
-UserSummary = { userId: UserId, role: UserRole, active: boolean }
 ```
+
+Orders valida firma y claims localmente con el mismo `JWT_SECRET`, y consulta
+`GET /users/me` para verificar que el usuario siga existiendo y activo. Users no
+expone `GET /users/:id`; Orders no debe llamar esa ruta.
 
 ### Catálogo
 
-**Implementa el adaptador:** compañero responsable del Catálogo.
+Catalog expone `GET /products/:id` sin prefijo global `api`; la respuesta usa
+`id`, `name`, `price` numérico, `stock` y `active`. El precio se interpreta en
+COP según la decisión del equipo para esta integración. `400` indica ID
+inválido y `404` producto inexistente.
 
 ```text
 getProduct(productId: ProductId): Promise<ProductSnapshot>
@@ -574,6 +583,8 @@ checkAvailability(productId: ProductId, quantity: Quantity): Promise<Availabilit
 reserveStock(reservation: StockReservation): Promise<ReservationResult>
 releaseStock(reservationId: string): Promise<void>
 commitStock(reservationId: string): Promise<void>
+cancelStockReservation(reservationId: string): Promise<void>
+fulfillStockReservation(reservationId: string): Promise<void>
 
 ProductSnapshot = {
   productId: ProductId,
@@ -584,12 +595,41 @@ ProductSnapshot = {
 }
 ```
 
-La semántica exacta de reservar, descontar y liberar debe confirmarse con
-Catálogo. Orders solo depende de la abstracción.
+La integración añade rutas internas sin prefijo global `api`:
+
+- `POST /inventory/reservations`, con `reservationId`, `productId` y
+  `quantity`; devuelve estado `RESERVED`. Devuelve `400` ante un cuerpo
+  inválido, `401` si falta o no coincide `X-Internal-Api-Key`, `404` para
+  producto inexistente y `409` para stock insuficiente o referencia en
+  conflicto.
+- `POST /inventory/reservations/:reservationId/commit` confirma idempotentemente
+  la reserva; `404` para reserva inexistente y `409` si ya se liberó o el stock
+  reservado es inconsistente.
+- `DELETE /inventory/reservations/:reservationId` libera y repone stock;
+  devolverla repetidamente es seguro, y `409` si ya se confirmó.
+- `POST /inventory/reservations/:reservationId/cancel` repone el stock si la
+  reserva ya se confirmó o libera una reserva pendiente; es idempotente.
+- `POST /inventory/reservations/:reservationId/fulfill` cierra la reserva al
+  entregar la orden, sin modificar el stock.
+
+El API key debe compartirse entre Orders y Catalog. La reserva actualiza
+atómicamente el stock disponible, `reservedStock` y el registro de reserva en
+una transacción de MongoDB local al servicio Catalog. Este MongoDB debe usar
+replica set; no existe una transacción distribuida entre las bases de Catalog y
+Orders.
 
 ### Pagos
 
-**Implementa el adaptador:** compañero responsable de Pagos.
+Payments expone `POST /payments/simulate` (sin prefijo global `api`) con
+`orderId`, `userId`, `amount` numérico, `currency` y `method`. Orders envía
+`X-Internal-Api-Key` e `Idempotency-Key`; la respuesta usa `id` y `status` en
+minúsculas, que el adaptador traduce al contrato interno. `PAYMENT_SIMULATION_RESULT`
+permite fijar `pending`, `approved` o `rejected` en pruebas; `auto` mantiene el
+comportamiento simulado por método. Payments persiste callback-eventos
+aprobados/rechazados y los reintenta con un `eventId` estable hasta el límite
+configurado, conservando el resultado original aunque el pago se cancele o
+reembolse antes de entregar el callback. `POST /payments/:id/cancel`
+cancela/reembolsa de forma idempotente.
 
 ```text
 startPayment(request: StartPaymentRequest): Promise<PaymentInitiated>
@@ -619,7 +659,10 @@ CancelOrRefundPaymentRequest = {
 }
 ```
 
-El callback/webhook o la respuesta síncrona debe definirse con Pagos.
+La integración extiende Payments con idempotencia por clave, resultado
+configurable para simulación y callback interno firmado con API key. La
+conversión entre los estados API en minúsculas y los estados de Orders en
+mayúsculas se hace en el adaptador de Payments.
 
 ### Persistencia
 
@@ -737,8 +780,8 @@ se leen como unidad y deben conservar consistencia con su raíz. La orden
 incrusta snapshots para que cambios posteriores del Catálogo no alteren el
 historial ni el importe cobrado.
 
-**Supuesto:** el dinero se almacena como entero en centavos/unidad menor y la
-moneda inicial es `COP`. Debe confirmarse con el equipo.
+El dinero se almacena como entero en la unidad menor y la moneda inicial
+confirmada por el equipo para esta integración es `COP`.
 
 ## 11. Flujo de checkout
 
@@ -861,17 +904,18 @@ antes de implementar adaptadores o integrar los servicios compañeros.
   transacción para persistir de forma atómica el evento y la orden; se requiere
   MongoDB con replica set o clúster sharded.
 - **JWT:** `JwtTokenVerifier` acepta HS256, emisor `users-service`, claims
-  `sub`, `role`, `iat` y `exp`; el endpoint de perfil también debe coincidir en
-  `id` (o `userId`/`sub`) y `role`. Perfil esperado: `active: true` o
-  `status: "ACTIVE"`. La ruta `/api/users/me` y ese esquema deben confirmarse.
-- **Catálogo (supuesto HTTP):** `GET /api/products/:id` devuelve `name`,
-  `unitPrice` o `price` con `{amount,currency}`, `available` y `stock`.
-  `POST /api/inventory/reservations` acepta `reservationId`, `productId` y
-  `quantity`; DELETE libera una reserva y POST `:id/commit` la confirma.
-- **Pagos (supuesto HTTP):** `POST /api/payments` acepta orden, usuario, monto
-  e `idempotencyKey`, y devuelve `paymentId` más `PENDING`, `APPROVED` o
-  `REJECTED`. `POST /api/payments/:paymentId/cancel` cancela/reembolsa de forma
-  idempotente.
+  `sub`, `email`, `role`, `iat` y `exp`. `GET /users/me` devuelve `id`, `role`
+  y `status`; Users no tiene prefijo global ni ruta `/users/:id`. El secreto
+  debe ser el mismo en ambos servicios.
+- **Catálogo:** `GET /products/:id` devuelve `id`, `name`, precio numérico,
+  `stock` y `active`, sin moneda. Orders interpreta los precios en COP. Las
+  rutas internas de reserva usan `X-Internal-Api-Key` compartida y transacciones
+  locales al Catalog; el Compose de Catalog configura Mongo como replica set.
+- **Pagos:** `POST /payments/simulate` requiere clave idempotente y API key
+  interna; las respuestas tienen estado minúsculo. La entrega de callbacks es
+  al menos una vez, con dedupe transaccional en Orders y reintentos limitados
+  persistidos en el outbox de Payments. Cancelación y reembolso usan una clave
+  idempotente propia.
 - **Callback:** Orders expone `POST /api/orders/:id/payment-result`, protegido
   por `X-Internal-Api-Key`; el evento requiere `eventId` estable para dedupe.
   La API key de ejemplo es solo local y no reemplaza identidad de servicio en

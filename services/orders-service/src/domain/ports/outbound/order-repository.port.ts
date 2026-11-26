@@ -31,6 +31,18 @@ export type SaveIdempotentOrderResult = {
   created: boolean;
 };
 
+export type PaymentEventInput = {
+  eventId: string;
+  paymentId: string;
+  result: 'APPROVED' | 'REJECTED' | 'PENDING';
+};
+
+export type ProcessedPaymentEvent = PaymentEventInput & {
+  orderId: string;
+};
+
+export type SavePaymentResultOutcome = 'saved' | 'duplicate' | 'conflict';
+
 export interface OrderRepository {
   findById(id: OrderId): Promise<Order | null>;
   findByIdempotencyKey(userId: UserId, key: string): Promise<Order | null>;
@@ -40,8 +52,12 @@ export interface OrderRepository {
     order: Order,
     key: string,
   ): Promise<SaveIdempotentOrderResult>;
-  // La persistencia debe deduplicar el evento de forma atómica.
-  savePaymentResultOnce(order: Order, eventId: string): Promise<boolean>;
+  findPaymentEvent(eventId: string): Promise<ProcessedPaymentEvent | null>;
+  // La persistencia registra el evento y el cambio de orden atómicamente.
+  savePaymentResultOnce(
+    order: Order,
+    event: PaymentEventInput,
+  ): Promise<SavePaymentResultOutcome>;
   listByUser(userId: UserId, filter: OrderFilter, page: PageRequest): Promise<Page<Order>>;
   listAll(filter: AdminOrderFilter, page: PageRequest): Promise<Page<Order>>;
 }
