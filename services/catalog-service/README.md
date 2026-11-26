@@ -81,7 +81,7 @@ Ejemplo de creación:
 `price` debe ser un número no negativo y `stock` un entero no negativo. Los
 errores de validación devuelven `400`; los IDs inválidos devuelven `400` y los
 productos inexistentes devuelven `404`. No se puede eliminar un producto con
-reservas activas; esa operación responde `409`.
+reservas pendientes o confirmadas no entregadas; esa operación responde `409`.
 
 ### Contrato consumido por Orders
 
@@ -102,11 +102,16 @@ en Orders y Catalog (al menos 32 bytes):
 | `POST`   | `/inventory/reservations`                       | Recibe `{ "reservationId": "...", "productId": "<ObjectId>", "quantity": 2 }`; devuelve estado `RESERVED`. `400` cuerpo inválido, `401` clave inválida, `404` producto inexistente, `409` stock insuficiente o referencia en conflicto. |
 | `POST`   | `/inventory/reservations/:reservationId/commit` | Confirma una reserva idempotentemente. `401` clave inválida, `404` reserva inexistente, `409` reserva liberada o inconsistente.                                                                                                         |
 | `DELETE` | `/inventory/reservations/:reservationId`        | Libera y repone stock idempotentemente. `401` clave inválida, `409` reserva previamente confirmada.                                                                                                                                     |
+| `POST`   | `/inventory/reservations/:reservationId/cancel` | Cancela una reserva pendiente o devuelve el stock de una reserva confirmada; es idempotente. Una referencia inexistente responde `RELEASED`. `401` clave inválida, `409` transición inconsistente. |
+| `POST`   | `/inventory/reservations/:reservationId/fulfill` | Cierra una reserva confirmada cuando se entrega la orden; es idempotente y no modifica stock. `401` clave inválida, `404` reserva inexistente, `409` transición inconsistente. |
 
 La reserva decrementa `stock` disponible e incrementa `reservedStock` en una
 transacción con el documento de reserva. `commit` consume el retenido y
-`release` lo devuelve. MongoDB debe operar como replica set; las operaciones
-son atómicas dentro de Catalog, no entre bases de distintos servicios.
+`release` lo devuelve. `cancel` libera una reserva pendiente o repone una ya
+confirmada en una sola transacción. `fulfill` cierra la reserva al entregar la
+orden, para permitir eliminar productos sin una cancelación futura pendiente.
+MongoDB debe operar como replica set; las operaciones son atómicas dentro de
+Catalog, no entre bases de distintos servicios.
 
 ## Verificación
 

@@ -89,4 +89,24 @@ export class CatalogHttpAdapter implements CatalogServicePort {
       ),
     );
   }
+
+  async cancelStockReservation(reservationId: string): Promise<void> {
+    await adaptCall('Catálogo', () =>
+      this.http.request(
+        'catalog',
+        `/inventory/reservations/${encodeURIComponent(reservationId)}/cancel`,
+        { method: 'POST', idempotent: true, internal: true, body: {} },
+      ),
+    );
+  }
+
+  async fulfillStockReservation(reservationId: string): Promise<void> {
+    await adaptCall('Catálogo', () =>
+      this.http.request(
+        'catalog',
+        `/inventory/reservations/${encodeURIComponent(reservationId)}/fulfill`,
+        { method: 'POST', idempotent: true, internal: true, body: {} },
+      ),
+    );
+  }
 }

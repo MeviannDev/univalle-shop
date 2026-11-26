@@ -49,19 +49,18 @@ export class MongoProductRepository implements ProductRepository {
   }
 
   async delete(id: string): Promise<boolean> {
+    const hasActiveReservation = await this.reservationModel
+      .exists({ productId: id, status: { $in: ['RESERVED', 'COMMITTED'] } })
+      .exec();
+    if (hasActiveReservation) {
+      throw new ProductHasActiveReservationsError();
+    }
+
     const result = await this.productModel
       .deleteOne({ _id: id, reservedStock: { $in: [0, null] } })
       .exec();
     if (result.deletedCount === 1) return true;
 
-    const productExists = await this.productModel.exists({ _id: id }).exec();
-    if (!productExists) return false;
-    const hasActiveReservation = await this.reservationModel
-      .exists({ productId: id, status: 'RESERVED' })
-      .exec();
-    if (hasActiveReservation) {
-      throw new ProductHasActiveReservationsError();
-    }
     return false;
   }
 

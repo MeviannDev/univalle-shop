@@ -32,10 +32,11 @@ export class CancelOrder {
       throw new OrderNotFoundError();
     }
     assertOrderOwnerOrAdmin(actor, order.userId.value);
+    const previousStatus = order.status.value;
     if (!order.canTransitionTo('CANCELLED')) {
       order.cancel(actor.userId.value);
     }
-    if (order.paymentId && order.status.value !== 'PAYMENT_FAILED') {
+    if (order.paymentId && previousStatus !== 'PAYMENT_FAILED') {
       await callExternal('Pagos', () =>
         this.payments.cancelOrRefundPayment({
           paymentId: order.paymentId!,
@@ -44,10 +45,14 @@ export class CancelOrder {
         }),
       );
     }
-    if (order.status.value !== 'PAYMENT_FAILED') {
+    if (
+      previousStatus === 'PENDING_PAYMENT' ||
+      previousStatus === 'PAID' ||
+      previousStatus === 'PROCESSING'
+    ) {
       for (const reservationId of order.reservationIds) {
         await callExternal('Catálogo', () =>
-          this.catalog.releaseStock(reservationId),
+          this.catalog.cancelStockReservation(reservationId),
         );
       }
     }

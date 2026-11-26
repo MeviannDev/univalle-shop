@@ -191,11 +191,12 @@ export class FakeUsersService implements UserServicePort {
 export class FakeCatalogService implements CatalogServicePort {
   readonly products = new Map<string, ProductSnapshot>();
   readonly reservations = new Map<string, StockReservation>();
-  readonly failures: Partial<Record<'getProduct' | 'checkAvailability' | 'reserveStock' | 'releaseStock' | 'commitStock', Error>> = {};
+  readonly failures: Partial<Record<'getProduct' | 'checkAvailability' | 'reserveStock' | 'releaseStock' | 'commitStock' | 'cancelStockReservation' | 'fulfillStockReservation', Error>> = {};
   failReservation = false;
   failOnReservationNumber: number | null = null;
   private reservationCalls = 0;
-  private committed: string[] = [];
+  private committed = new Map<string, StockReservation>();
+  private readonly returned = new Set<string>();
 
   addProduct(
     productId: string,
@@ -241,6 +242,15 @@ export class FakeCatalogService implements CatalogServicePort {
     if (this.reservationCalls === this.failOnReservationNumber) {
       throw new Error('Fallo de reserva simulado');
     }
+    const existing = this.reservations.get(reservation.reservationId);
+    if (existing) {
+      return {
+        reservationId: reservation.reservationId,
+        reserved:
+          existing.productId.equals(reservation.productId) &&
+          existing.quantity.value === reservation.quantity.value,
+      };
+    }
     const product = this.products.get(reservation.productId.value);
     if (this.failReservation || !product || !product.available || product.stock < reservation.quantity.value) {
       return { reservationId: reservation.reservationId, reserved: false };
@@ -255,7 +265,7 @@ export class FakeCatalogService implements CatalogServicePort {
 
   async releaseStock(reservationId: string): Promise<void> {
     this.throwIfFailed('releaseStock');
-    if (this.committed.includes(reservationId)) {
+    if (this.committed.has(reservationId)) {
       return;
     }
     const reservation = this.reservations.get(reservationId);
@@ -274,8 +284,35 @@ export class FakeCatalogService implements CatalogServicePort {
 
   async commitStock(reservationId: string): Promise<void> {
     this.throwIfFailed('commitStock');
-    this.committed.push(reservationId);
+    const reservation = this.reservations.get(reservationId);
+    if (reservation) {
+      this.committed.set(reservationId, reservation);
+    }
     this.reservations.delete(reservationId);
+  }
+
+  async cancelStockReservation(reservationId: string): Promise<void> {
+    this.throwIfFailed('cancelStockReservation');
+    if (this.returned.has(reservationId)) return;
+    const reservation = this.committed.get(reservationId);
+    if (reservation) {
+      const product = this.products.get(reservation.productId.value);
+      if (product) {
+        this.products.set(product.productId.value, {
+          ...product,
+          stock: product.stock + reservation.quantity.value,
+        });
+      }
+      this.committed.delete(reservationId);
+      this.returned.add(reservationId);
+      return;
+    }
+    await this.releaseStock(reservationId);
+  }
+
+  async fulfillStockReservation(reservationId: string): Promise<void> {
+    this.throwIfFailed('fulfillStockReservation');
+    this.committed.delete(reservationId);
   }
 
   private throwIfFailed(
@@ -290,16 +327,31 @@ export class FakeCatalogService implements CatalogServicePort {
 
 export class FakePaymentService implements PaymentServicePort {
   failure: Error | null = null;
+  failAfterAccept = false;
   status: PaymentInitiated['status'] = 'PENDING';
   readonly requests: StartPaymentRequest[] = [];
   readonly cancellationRequests: string[] = [];
+  private readonly payments = new Map<string, PaymentInitiated>();
 
   async startPayment(request: StartPaymentRequest): Promise<PaymentInitiated> {
+    this.requests.push(request);
+    const existing = this.payments.get(request.idempotencyKey);
+    if (existing) {
+      return existing;
+    }
     if (this.failure) {
       throw this.failure;
     }
-    this.requests.push(request);
-    return { paymentId: `payment-${this.requests.length}`, status: this.status };
+    const payment = {
+      paymentId: `payment-${this.payments.size + 1}`,
+      status: this.status,
+    };
+    this.payments.set(request.idempotencyKey, payment);
+    if (this.failAfterAccept) {
+      this.failAfterAccept = false;
+      throw new Error('Respuesta de pago perdida después de aceptar');
+    }
+    return payment;
   }
 
   async cancelOrRefundPayment(request: {

@@ -35,13 +35,14 @@ export class UpdateOrderStatusAdmin {
     if (!order) {
       throw new OrderNotFoundError();
     }
+    const previousStatus = order.status.value;
     if (!order.canTransitionTo(command.status)) {
       order.transitionTo(command.status, admin.userId.value);
     }
     if (
       command.status === 'CANCELLED' &&
       order.paymentId &&
-      order.status.value !== 'PAYMENT_FAILED'
+      previousStatus !== 'PAYMENT_FAILED'
     ) {
       await callExternal('Pagos', () =>
         this.payments.cancelOrRefundPayment({
@@ -51,10 +52,20 @@ export class UpdateOrderStatusAdmin {
         }),
       );
     }
-    if (command.status === 'CANCELLED' && order.status.value !== 'PAYMENT_FAILED') {
+    if (
+      command.status === 'CANCELLED' &&
+      ['PENDING_PAYMENT', 'PAID', 'PROCESSING'].includes(previousStatus)
+    ) {
       for (const reservationId of order.reservationIds) {
         await callExternal('Catálogo', () =>
-          this.catalog.releaseStock(reservationId),
+          this.catalog.cancelStockReservation(reservationId),
+        );
+      }
+    }
+    if (command.status === 'DELIVERED') {
+      for (const reservationId of order.reservationIds) {
+        await callExternal('Catálogo', () =>
+          this.catalog.fulfillStockReservation(reservationId),
         );
       }
     }

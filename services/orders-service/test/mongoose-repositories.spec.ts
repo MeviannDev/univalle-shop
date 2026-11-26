@@ -109,6 +109,24 @@ describe('Mongoose repositories against MongoDB replica set', () => {
     expect(await eventModel.countDocuments({ eventId: 'event-1' })).toBe(1);
   });
 
+  it('revierte el evento si falla la actualización de la orden en la transacción', async () => {
+    const userId = new UserId('customer-transaction-failure');
+    const missingOrder = Order.createFromCart(
+      new OrderId('order-does-not-exist'),
+      cartFor(userId),
+    );
+    const event = {
+      eventId: 'event-rollback',
+      paymentId: 'payment-rollback',
+      result: 'APPROVED' as const,
+    };
+
+    await expect(
+      orderRepository.savePaymentResultOnce(missingOrder, event),
+    ).rejects.toThrow('La orden dejó de existir al guardar el resultado de pago');
+    expect(await eventModel.countDocuments({ eventId: event.eventId })).toBe(0);
+  });
+
   it('pagina resultados y aplica filtro de estado y usuario', async () => {
     const firstUser = new UserId('customer-1');
     const secondUser = new UserId('customer-2');

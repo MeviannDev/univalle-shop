@@ -35,4 +35,6 @@ export interface CatalogServicePort {
   reserveStock(reservation: StockReservation): Promise<ReservationResult>;
   releaseStock(reservationId: string): Promise<void>;
   commitStock(reservationId: string): Promise<void>;
+  cancelStockReservation(reservationId: string): Promise<void>;
+  fulfillStockReservation(reservationId: string): Promise<void>;
 }

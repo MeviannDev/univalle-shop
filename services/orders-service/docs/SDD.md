@@ -583,6 +583,8 @@ checkAvailability(productId: ProductId, quantity: Quantity): Promise<Availabilit
 reserveStock(reservation: StockReservation): Promise<ReservationResult>
 releaseStock(reservationId: string): Promise<void>
 commitStock(reservationId: string): Promise<void>
+cancelStockReservation(reservationId: string): Promise<void>
+fulfillStockReservation(reservationId: string): Promise<void>
 
 ProductSnapshot = {
   productId: ProductId,
@@ -605,6 +607,10 @@ La integración añade rutas internas sin prefijo global `api`:
   reservado es inconsistente.
 - `DELETE /inventory/reservations/:reservationId` libera y repone stock;
   devolverla repetidamente es seguro, y `409` si ya se confirmó.
+- `POST /inventory/reservations/:reservationId/cancel` repone el stock si la
+  reserva ya se confirmó o libera una reserva pendiente; es idempotente.
+- `POST /inventory/reservations/:reservationId/fulfill` cierra la reserva al
+  entregar la orden, sin modificar el stock.
 
 El API key debe compartirse entre Orders y Catalog. La reserva actualiza
 atómicamente el stock disponible, `reservedStock` y el registro de reserva en

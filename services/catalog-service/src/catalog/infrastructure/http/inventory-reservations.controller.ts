@@ -24,6 +24,8 @@ import {
 } from '@nestjs/swagger';
 import { CommitStockReservationUseCase } from '../../application/use-cases/commit-stock-reservation.use-case.js';
 import { ReleaseStockReservationUseCase } from '../../application/use-cases/release-stock-reservation.use-case.js';
+import { CancelStockReservationUseCase } from '../../application/use-cases/cancel-stock-reservation.use-case.js';
+import { FulfillStockReservationUseCase } from '../../application/use-cases/fulfill-stock-reservation.use-case.js';
 import { ReserveStockUseCase } from '../../application/use-cases/reserve-stock.use-case.js';
 import { ProductExceptionFilter } from './filters/product-exception.filter.js';
 import { InternalApiKeyGuard } from './internal-api-key.guard.js';
@@ -41,6 +43,10 @@ export class InventoryReservationsController {
     private readonly commitStock: CommitStockReservationUseCase,
     @Inject(ReleaseStockReservationUseCase)
     private readonly releaseStock: ReleaseStockReservationUseCase,
+    @Inject(CancelStockReservationUseCase)
+    private readonly cancelReservation: CancelStockReservationUseCase,
+    @Inject(FulfillStockReservationUseCase)
+    private readonly fulfillReservation: FulfillStockReservationUseCase,
   ) {}
 
   @Post()
@@ -100,5 +106,44 @@ export class InventoryReservationsController {
   @ApiUnauthorizedResponse({ description: 'API key interna inválida.' })
   async release(@Param('reservationId') reservationId: string) {
     return this.releaseStock.execute(reservationId);
+  }
+
+  @Post(':reservationId/cancel')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Cancelar una reserva y devolver el stock correspondiente',
+  })
+  @ApiHeader({ name: 'X-Internal-Api-Key', required: true })
+  @ApiOkResponse({
+    schema: {
+      example: { reservationId: 'reservation_123', status: 'RETURNED' },
+    },
+  })
+  @ApiConflictResponse({
+    description: 'La reserva no se puede cancelar en su estado actual.',
+  })
+  @ApiUnauthorizedResponse({ description: 'API key interna inválida.' })
+  async cancel(@Param('reservationId') reservationId: string) {
+    return this.cancelReservation.execute(reservationId);
+  }
+
+  @Post(':reservationId/fulfill')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Cerrar una reserva confirmada cuando la orden se entrega',
+  })
+  @ApiHeader({ name: 'X-Internal-Api-Key', required: true })
+  @ApiOkResponse({
+    schema: {
+      example: { reservationId: 'reservation_123', status: 'FULFILLED' },
+    },
+  })
+  @ApiConflictResponse({
+    description: 'Solo se puede completar una reserva confirmada.',
+  })
+  @ApiNotFoundResponse({ description: 'Reserva inexistente.' })
+  @ApiUnauthorizedResponse({ description: 'API key interna inválida.' })
+  async fulfill(@Param('reservationId') reservationId: string) {
+    return this.fulfillReservation.execute(reservationId);
   }
 }

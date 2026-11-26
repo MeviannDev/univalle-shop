@@ -2,6 +2,8 @@ export const RESERVATION_STATUSES = [
   'RESERVED',
   'COMMITTED',
   'RELEASED',
+  'RETURNED',
+  'FULFILLED',
 ] as const;
 
 export type ReservationStatus = (typeof RESERVATION_STATUSES)[number];

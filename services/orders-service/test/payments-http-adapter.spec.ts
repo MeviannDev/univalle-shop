@@ -8,6 +8,7 @@ import { UserId } from '../src/domain/value-objects/user-id.js';
 import { HttpServiceClient } from '../src/infrastructure/clients/http-service-client.js';
 import { PaymentsHttpAdapter } from '../src/infrastructure/clients/payments-http.adapter.js';
 import { RequestIdContext } from '../src/infrastructure/clients/request-id.context.js';
+import { ExternalServiceUnavailableError } from '../src/application/errors/external-service-unavailable.error.js';
 
 const servers: Server[] = [];
 
@@ -47,7 +48,11 @@ describe('PaymentsHttpAdapter', () => {
       response.end(
         JSON.stringify(
           request.url === '/payments/simulate'
-            ? { id: 'payment-1', status: 'approved' }
+            ? {
+                id: 'payment-1',
+                status: 'approved',
+                callbackEventId: 'payment-event-1',
+              }
             : { id: 'payment-1', status: 'refunded' },
         ),
       );
@@ -61,7 +66,11 @@ describe('PaymentsHttpAdapter', () => {
         amount: new Money(125000, 'COP'),
         idempotencyKey: 'checkout-key',
       }),
-    ).resolves.toEqual({ paymentId: 'payment-1', status: 'APPROVED' });
+    ).resolves.toEqual({
+      paymentId: 'payment-1',
+      status: 'APPROVED',
+      eventId: 'payment-event-1',
+    });
     await adapter.cancelOrRefundPayment({
       paymentId: 'payment-1',
       orderId: new OrderId('order-1'),
@@ -89,6 +98,30 @@ describe('PaymentsHttpAdapter', () => {
       body: { orderId: 'order-1' },
     });
   });
+
+  it('times out and retries an idempotent request only once', async () => {
+    let requests = 0;
+    const server = await startServer((_request, response) => {
+      requests += 1;
+      setTimeout(() => {
+        if (!response.destroyed) {
+          response.writeHead(200, { 'content-type': 'application/json' });
+          response.end(JSON.stringify({ id: 'payment-1', status: 'pending' }));
+        }
+      }, 500);
+    });
+    const adapter = createAdapter(server, 100);
+
+    await expect(
+      adapter.startPayment({
+        orderId: new OrderId('order-timeout'),
+        userId: new UserId('user-1'),
+        amount: new Money(125000, 'COP'),
+        idempotencyKey: 'checkout-timeout',
+      }),
+    ).rejects.toBeInstanceOf(ExternalServiceUnavailableError);
+    expect(requests).toBe(2);
+  });
 });
 
 async function startServer(handler: RequestListener): Promise<Server> {
@@ -99,14 +132,14 @@ async function startServer(handler: RequestListener): Promise<Server> {
   return server;
 }
 
-function createAdapter(server: Server): PaymentsHttpAdapter {
+function createAdapter(server: Server, timeoutMs = 1000): PaymentsHttpAdapter {
   const address = server.address();
   if (!address || typeof address === 'string') {
     throw new Error('Dirección local de servidor no disponible');
   }
   const config = new ConfigService({
     PAYMENTS_SERVICE_URL: `http://127.0.0.1:${address.port}`,
-    PAYMENTS_TIMEOUT_MS: '1000',
+    PAYMENTS_TIMEOUT_MS: String(timeoutMs),
     INTERNAL_SERVICE_API_KEY: 'shared-test-key',
   });
   return new PaymentsHttpAdapter(

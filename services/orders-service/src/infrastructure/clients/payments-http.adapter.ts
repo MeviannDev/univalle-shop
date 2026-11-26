@@ -48,6 +48,9 @@ export class PaymentsHttpAdapter implements PaymentServicePort {
       return {
         paymentId: requiredString(body.id, 'id'),
         status: status as PaymentInitiated['status'],
+        ...(body.callbackEventId === undefined
+          ? {}
+          : { eventId: requiredString(body.callbackEventId, 'callbackEventId') }),
       };
     });
   }

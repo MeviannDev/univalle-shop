@@ -14,6 +14,7 @@ import { CompensationFailedError } from '../../errors/compensation-failed.error.
 import { IdempotencyKeyError } from '../../errors/idempotency-key.error.js';
 import { InvalidDependencyResponseError } from '../../errors/invalid-dependency-response.error.js';
 import { ProductUnavailableError } from '../../errors/product-unavailable.error.js';
+import { ApplyPaymentResult } from './apply-payment-result.use-case.js';
 import { authenticate } from '../../shared/authorization.js';
 import { callExternal, compensate } from '../../shared/external-call.js';
 import { loadCart } from '../../shared/load-cart.js';
@@ -49,21 +50,149 @@ export class CreateOrderFromCart {
       this.orders.findByIdempotencyKey(user.userId, command.idempotencyKey),
     );
     if (previous) {
+      if (
+        previous.status.value === 'PENDING_PAYMENT' &&
+        !previous.paymentId
+      ) {
+        return {
+          order: await this.resumePendingCheckout(
+            previous,
+            command.idempotencyKey,
+          ),
+          replayed: true,
+        };
+      }
       return { order: previous, replayed: true };
     }
 
     const cart = await loadCart(this.carts, user.userId, false);
     const cartItems = cart.checkout();
     const snapshotCart = await this.createCheckoutSnapshot(cart);
-    const reservationIds: string[] = [];
     let order: Order | null = null;
     let orderPersisted = false;
     let clearedCart = false;
+    let paymentStarted = false;
 
     try {
-      for (const item of snapshotCart.items) {
-        const reservationId = this.ids.nextReservationId();
-        reservationIds.push(reservationId);
+      order = Order.createFromCart(
+        this.ids.nextOrderId(),
+        snapshotCart,
+        this.clock.now(),
+        user.userId.value,
+      );
+      snapshotCart.items.forEach(() =>
+        order!.addReservationId(this.ids.nextReservationId()),
+      );
+
+      const saved = await callExternal('Persistencia de órdenes', () =>
+        this.orders.saveIfAbsentByIdempotencyKey(order!, command.idempotencyKey),
+      );
+      if (!saved.created) {
+        if (
+          saved.order.status.value === 'PENDING_PAYMENT' &&
+          !saved.order.paymentId
+        ) {
+          return {
+            order: await this.resumePendingCheckout(
+              saved.order,
+              command.idempotencyKey,
+            ),
+            replayed: true,
+          };
+        }
+        return { order: saved.order, replayed: true };
+      }
+      order = saved.order;
+      orderPersisted = true;
+
+      await this.reserveOrderStock(order);
+      cart.clear();
+      clearedCart = true;
+      await callExternal('Persistencia de carritos', () => this.carts.save(cart));
+
+      paymentStarted = true;
+      const payment = await callExternal('Pagos', () =>
+        this.payments.startPayment({
+          orderId: order!.id,
+          userId: user.userId,
+          amount: order!.total,
+          idempotencyKey: command.idempotencyKey,
+        }),
+      );
+      const applied = await this.applyPaymentResult(order, payment);
+      order = applied;
+      if (payment.status === 'REJECTED') {
+        await this.restoreCart(cart, cartItems);
+        clearedCart = false;
+      }
+
+      return { order, replayed: false };
+    } catch (error) {
+      if (orderPersisted) {
+        if (clearedCart && !paymentStarted) {
+          try {
+            await this.restoreCart(cart, cartItems);
+          } catch (restoreError) {
+            throw new Error(
+              `Checkout quedó pendiente y no se pudo restaurar el carrito: ${String(restoreError)}`,
+              { cause: error },
+            );
+          }
+        }
+        throw error;
+      }
+      throw error;
+    }
+  }
+
+  private async resumePendingCheckout(
+    order: Order,
+    idempotencyKey: string,
+  ): Promise<Order> {
+    await this.reserveOrderStock(order);
+    const cart = await loadCart(
+      this.carts,
+      order.userId,
+      true,
+      this.ids,
+      this.clock,
+    );
+    if (this.cartMatchesOrder(cart, order)) {
+      cart.clear();
+      await callExternal('Persistencia de carritos', () =>
+        this.carts.save(cart),
+      );
+    }
+
+    const payment = await callExternal('Pagos', () =>
+      this.payments.startPayment({
+        orderId: order.id,
+        userId: order.userId,
+        amount: order.total,
+        idempotencyKey,
+      }),
+    );
+    const updated = await this.applyPaymentResult(order, payment);
+    if (payment.status === 'REJECTED') {
+      const cart = await loadCart(
+        this.carts,
+        order.userId,
+        true,
+        this.ids,
+        this.clock,
+      );
+      await this.restoreCart(cart, this.orderItemsAsCartItems(order));
+    }
+    return updated;
+  }
+
+  private async reserveOrderStock(order: Order): Promise<void> {
+    if (order.reservationIds.length !== order.items.length) {
+      throw new InvalidDependencyResponseError('Persistencia de órdenes');
+    }
+    try {
+      for (const [index, item] of order.items.entries()) {
+        const reservationId = order.reservationIds[index]!;
         const reservation = await callExternal('Catálogo', () =>
           this.catalog.reserveStock({
             reservationId,
@@ -78,80 +207,80 @@ export class CreateOrderFromCart {
           throw new ProductUnavailableError(item.productId.value);
         }
       }
-
-      order = Order.createFromCart(
-        this.ids.nextOrderId(),
-        snapshotCart,
-        this.clock.now(),
-        user.userId.value,
-      );
-      reservationIds.forEach((reservationId) => order!.addReservationId(reservationId));
-
-      const saved = await callExternal('Persistencia de órdenes', () =>
-        this.orders.saveIfAbsentByIdempotencyKey(order!, command.idempotencyKey),
-      );
-      if (!saved.created) {
-        const failures = await this.releaseReservations(reservationIds);
-        reservationIds.length = 0;
-        order = null;
-        if (failures.length > 0) {
-          throw new CompensationFailedError(
-            new Error('La clave idempotente ya estaba registrada'),
-            failures,
-          );
-        }
-        return { order: saved.order, replayed: true };
-      }
-      order = saved.order;
-      orderPersisted = true;
-
-      cart.clear();
-      clearedCart = true;
-      await callExternal('Persistencia de carritos', () => this.carts.save(cart));
-
-      const payment = await callExternal('Pagos', () =>
-        this.payments.startPayment({
-          orderId: order!.id,
-          userId: user.userId,
-          amount: order!.total,
-          idempotencyKey: command.idempotencyKey,
-        }),
-      );
-      order.setPaymentId(payment.paymentId);
-
-      if (payment.status === 'APPROVED') {
-        for (const reservationId of reservationIds) {
-          await callExternal('Catálogo', () => this.catalog.commitStock(reservationId));
-        }
-        order.markAsPaid();
-      } else if (payment.status === 'REJECTED') {
-        order.markPaymentFailed();
-        const failures = await this.releaseReservations(reservationIds);
-        if (failures.length > 0) {
-          throw new CompensationFailedError(
-            new Error('Pagos rechazó la transacción'),
-            failures,
-          );
-        }
-        await this.restoreCart(cart, cartItems);
-        clearedCart = false;
-      }
-
-      await callExternal('Persistencia de órdenes', () => this.orders.save(order!));
-      return { order, replayed: false };
     } catch (error) {
-      const failures = await this.rollback(
-        reservationIds,
-        order,
-        orderPersisted,
-        clearedCart ? cart : null,
-        cartItems,
-      );
+      if (!(error instanceof ProductUnavailableError)) throw error;
+      const failures = await this.cancelReservations(order.reservationIds);
       if (failures.length > 0) {
         throw new CompensationFailedError(error, failures);
       }
+      order.markPaymentFailed();
+      await callExternal('Persistencia de órdenes', () =>
+        this.orders.save(order),
+      );
       throw error;
     }
+  }
+
+  private async cancelReservations(
+    reservationIds: readonly string[],
+  ): Promise<unknown[]> {
+    const failures: unknown[] = [];
+    for (const reservationId of reservationIds) {
+      const failure = await compensate('Catálogo', () =>
+        this.catalog.cancelStockReservation(reservationId),
+      );
+      if (failure) failures.push(failure);
+    }
+    return failures;
+  }
+
+  private cartMatchesOrder(cart: Cart, order: Order): boolean {
+    return (
+      cart.items.length === order.items.length &&
+      order.items.every((orderItem) =>
+        cart.items.some(
+          (cartItem) =>
+            cartItem.productId.equals(orderItem.productId) &&
+            cartItem.name === orderItem.name &&
+            cartItem.unitPrice.amount === orderItem.unitPrice.amount &&
+            cartItem.unitPrice.currency === orderItem.unitPrice.currency &&
+            cartItem.quantity.value === orderItem.quantity.value,
+        ),
+      )
+    );
+  }
+
+  private orderItemsAsCartItems(order: Order): CartItem[] {
+    return order.items.map(
+      (item) =>
+        new CartItem(
+          item.productId,
+          item.name,
+          item.unitPrice,
+          new Quantity(item.quantity.value, item.quantity.max),
+        ),
+    );
+  }
+
+  private async applyPaymentResult(
+    order: Order,
+    payment: Awaited<ReturnType<PaymentServicePort['startPayment']>>,
+  ): Promise<Order> {
+    const eventId =
+      payment.eventId ?? `orders-sync:${payment.paymentId}:${payment.status}`;
+    const result = await new ApplyPaymentResult(
+      this.orders,
+      this.catalog,
+      this.payments,
+    ).execute({
+      result: {
+        paymentId: payment.paymentId,
+        orderId: order.id,
+        result: payment.status,
+        eventId,
+      },
+    });
+    return result.order;
   }
 
   private async createCheckoutSnapshot(cart: Cart): Promise<Cart> {
@@ -206,45 +335,4 @@ export class CreateOrderFromCart {
     await callExternal('Persistencia de carritos', () => this.carts.save(restored));
   }
 
-  private async releaseReservations(
-    reservationIds: readonly string[],
-  ): Promise<unknown[]> {
-    const failures: unknown[] = [];
-    for (const reservationId of reservationIds) {
-      const failure = await compensate('Catálogo', () =>
-        this.catalog.releaseStock(reservationId),
-      );
-      if (failure) {
-        failures.push(failure);
-      }
-    }
-    return failures;
-  }
-
-  private async rollback(
-    reservationIds: readonly string[],
-    order: Order | null,
-    orderPersisted: boolean,
-    cartToRestore: Cart | null,
-    cartItems: ReturnType<Cart['checkout']>,
-  ): Promise<unknown[]> {
-    const failures = await this.releaseReservations(reservationIds);
-    if (order && orderPersisted && order.status.value === 'PENDING_PAYMENT') {
-      try {
-        order.markPaymentFailed();
-        await this.orders.save(order);
-      } catch (error) {
-        failures.push(error);
-      }
-    }
-    if (cartToRestore) {
-      const failure = await compensate('Persistencia de carritos', () =>
-        this.restoreCart(cartToRestore, cartItems),
-      );
-      if (failure) {
-        failures.push(failure);
-      }
-    }
-    return failures;
-  }
 }

@@ -14,6 +14,7 @@ export type StartPaymentRequest = {
 export type PaymentInitiated = {
   paymentId: string;
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  eventId?: string;
 };
 
 export type PaymentResult = {

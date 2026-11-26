@@ -173,7 +173,6 @@ export class MongoInventoryReservationRepository implements InventoryReservation
             'No se puede liberar una reserva ya confirmada.',
           );
         }
-
         const productResult = await this.products
           .updateOne(
             {
@@ -213,6 +212,129 @@ export class MongoInventoryReservationRepository implements InventoryReservation
     }
   }
 
+  async cancel(reservationId: string): Promise<ReservationTransitionResult> {
+    const session = await this.connection.startSession();
+    try {
+      let result: ReservationTransitionResult | undefined;
+      await session.withTransaction(async () => {
+        const reservation = await this.reservations
+          .findOne({ reservationId })
+          .session(session)
+          .exec();
+        if (!reservation) {
+          result = { reservationId, status: 'RELEASED' };
+          return;
+        }
+        if (
+          reservation.status === 'RELEASED' ||
+          reservation.status === 'RETURNED'
+        ) {
+          result = {
+            reservationId,
+            status:
+              reservation.status === 'RELEASED' ? 'RELEASED' : 'RETURNED',
+          };
+          return;
+        }
+        if (
+          reservation.status !== 'RESERVED' &&
+          reservation.status !== 'COMMITTED'
+        ) {
+          throw new InventoryReservationConflictError(
+            'La reserva no puede cancelarse en su estado actual.',
+          );
+        }
+
+        const isReserved = reservation.status === 'RESERVED';
+        const productResult = await this.products
+          .updateOne(
+            isReserved
+              ? {
+                  _id: reservation.productId,
+                  reservedStock: { $gte: reservation.quantity },
+                }
+              : { _id: reservation.productId },
+            {
+              $inc: isReserved
+                ? {
+                    stock: reservation.quantity,
+                    reservedStock: -reservation.quantity,
+                  }
+                : { stock: reservation.quantity },
+            },
+            { session },
+          )
+          .exec();
+        if (productResult.matchedCount !== 1) {
+          throw new InventoryReservationConflictError(
+            'No se encontró el producto o el stock reservado para cancelarlo.',
+          );
+        }
+
+        await this.reservations
+          .updateOne(
+            { reservationId, status: reservation.status },
+            { $set: { status: isReserved ? 'RELEASED' : 'RETURNED' } },
+            { session },
+          )
+          .exec();
+        result = {
+          reservationId,
+          status: isReserved ? 'RELEASED' : 'RETURNED',
+        };
+      });
+      if (!result) {
+        throw new Error('Catalog no devolvió el resultado de cancelación.');
+      }
+      return result;
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  async fulfill(reservationId: string): Promise<ReservationTransitionResult> {
+    const session = await this.connection.startSession();
+    try {
+      let result: ReservationTransitionResult | undefined;
+      await session.withTransaction(async () => {
+        const reservation = await this.reservations
+          .findOne({ reservationId })
+          .session(session)
+          .exec();
+        if (!reservation) throw new InventoryReservationNotFoundError();
+        if (reservation.status === 'FULFILLED') {
+          result = { reservationId, status: 'FULFILLED' };
+          return;
+        }
+        if (reservation.status !== 'COMMITTED') {
+          throw new InventoryReservationConflictError(
+            'Solo se puede completar una reserva confirmada.',
+          );
+        }
+
+        const update = await this.reservations
+          .updateOne(
+            { reservationId, status: 'COMMITTED' },
+            { $set: { status: 'FULFILLED' } },
+            { session },
+          )
+          .exec();
+        if (update.matchedCount !== 1) {
+          throw new InventoryReservationConflictError(
+            'La reserva cambió de estado antes de completarse.',
+          );
+        }
+        result = { reservationId, status: 'FULFILLED' };
+      });
+      if (!result) {
+        throw new Error('Catalog no devolvió el resultado de finalización.');
+      }
+      return result;
+    } finally {
+      await session.endSession();
+    }
+  }
+
   private replayReservation(
     existing: InventoryReservationDocument,
     input: CreateInventoryReservation,
@@ -220,7 +342,9 @@ export class MongoInventoryReservationRepository implements InventoryReservation
     if (
       existing.productId !== input.productId ||
       existing.quantity !== input.quantity ||
-      existing.status === 'RELEASED'
+      existing.status === 'RELEASED' ||
+      existing.status === 'RETURNED' ||
+      existing.status === 'FULFILLED'
     ) {
       throw new InventoryReservationConflictError(
         'La referencia de reserva ya fue usada con otros datos o liberada.',

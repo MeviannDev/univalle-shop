@@ -8,11 +8,13 @@ export type CreateInventoryReservation = Omit<InventoryReservation, 'status'>;
 
 export type ReservationTransitionResult = {
   reservationId: string;
-  status: 'COMMITTED' | 'RELEASED';
+  status: 'COMMITTED' | 'RELEASED' | 'RETURNED' | 'FULFILLED';
 };
 
 export interface InventoryReservationRepository {
   reserve(input: CreateInventoryReservation): Promise<InventoryReservation>;
   commit(reservationId: string): Promise<ReservationTransitionResult>;
   release(reservationId: string): Promise<ReservationTransitionResult>;
+  cancel(reservationId: string): Promise<ReservationTransitionResult>;
+  fulfill(reservationId: string): Promise<ReservationTransitionResult>;
 }

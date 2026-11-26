@@ -181,6 +181,42 @@ describe('MongoInventoryReservationRepository', () => {
     expect(committedProduct?.reservedStock).toBe(0);
   });
 
+  it('cancels reserved or committed stock idempotently', async () => {
+    expect(await repository.cancel('missing-reservation')).toEqual({
+      reservationId: 'missing-reservation',
+      status: 'RELEASED',
+    });
+
+    await repository.reserve({
+      reservationId: 'checkout-cancel-reserved',
+      productId,
+      quantity: 1,
+    });
+    expect(await repository.cancel('checkout-cancel-reserved')).toEqual({
+      reservationId: 'checkout-cancel-reserved',
+      status: 'RELEASED',
+    });
+
+    await repository.reserve({
+      reservationId: 'checkout-cancel-committed',
+      productId,
+      quantity: 2,
+    });
+    await repository.commit('checkout-cancel-committed');
+    expect(await repository.cancel('checkout-cancel-committed')).toEqual({
+      reservationId: 'checkout-cancel-committed',
+      status: 'RETURNED',
+    });
+    await repository.cancel('checkout-cancel-committed');
+
+    const product = await products.findById(productId).lean().exec();
+    expect(product?.stock).toBe(4);
+    expect(product?.reservedStock).toBe(0);
+    expect(
+      await reservations.findOne({ reservationId: 'checkout-cancel-committed' }),
+    ).toMatchObject({ status: 'RETURNED' });
+  });
+
   it('prevents deleting a product while a reservation is active', async () => {
     const productsRepository = new MongoProductRepository(
       products,
@@ -196,8 +232,33 @@ describe('MongoInventoryReservationRepository', () => {
       ProductHasActiveReservationsError,
     );
 
-    await repository.release('checkout-protected');
+    await repository.commit('checkout-protected');
+    await expect(productsRepository.delete(productId)).rejects.toBeInstanceOf(
+      ProductHasActiveReservationsError,
+    );
+
+    await repository.fulfill('checkout-protected');
     await expect(productsRepository.delete(productId)).resolves.toBe(true);
+  });
+
+  it('fulfills committed stock idempotently without changing availability', async () => {
+    await repository.reserve({
+      reservationId: 'checkout-fulfill',
+      productId,
+      quantity: 2,
+    });
+    await repository.commit('checkout-fulfill');
+
+    expect(await repository.fulfill('checkout-fulfill')).toEqual({
+      reservationId: 'checkout-fulfill',
+      status: 'FULFILLED',
+    });
+    await repository.fulfill('checkout-fulfill');
+
+    const product = await products.findById(productId).lean().exec();
+    expect(product?.stock).toBe(2);
+    expect(product?.reservedStock).toBe(0);
+    await expect(repository.cancel('checkout-fulfill')).rejects.toThrow();
   });
 
   it('exposes an authenticated HTTP reservation endpoint with validation', async () => {
@@ -235,6 +296,37 @@ describe('MongoInventoryReservationRepository', () => {
           productId,
           quantity: 1,
           status: 'RESERVED',
+        });
+      });
+
+    await request(app.getHttpServer())
+      .post(`/inventory/reservations/${body.reservationId}/cancel`)
+      .set('X-Internal-Api-Key', process.env.INTERNAL_SERVICE_API_KEY!)
+      .send({})
+      .expect(200)
+      .expect(({ body: responseBody }) => {
+        expect(responseBody).toMatchObject({
+          reservationId: body.reservationId,
+          status: 'RELEASED',
+        });
+      });
+
+    const committedReservationId = 'http-committed';
+    await repository.reserve({
+      reservationId: committedReservationId,
+      productId,
+      quantity: 1,
+    });
+    await repository.commit(committedReservationId);
+    await request(app.getHttpServer())
+      .post(`/inventory/reservations/${committedReservationId}/fulfill`)
+      .set('X-Internal-Api-Key', process.env.INTERNAL_SERVICE_API_KEY!)
+      .send({})
+      .expect(200)
+      .expect(({ body: responseBody }) => {
+        expect(responseBody).toMatchObject({
+          reservationId: committedReservationId,
+          status: 'FULFILLED',
         });
       });
   });

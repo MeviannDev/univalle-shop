@@ -14,6 +14,8 @@ import { DeleteProductUseCase } from './application/use-cases/delete-product.use
 import { GetProductUseCase } from './application/use-cases/get-product.use-case.js';
 import { ListProductsUseCase } from './application/use-cases/list-products.use-case.js';
 import { ReleaseStockReservationUseCase } from './application/use-cases/release-stock-reservation.use-case.js';
+import { CancelStockReservationUseCase } from './application/use-cases/cancel-stock-reservation.use-case.js';
+import { FulfillStockReservationUseCase } from './application/use-cases/fulfill-stock-reservation.use-case.js';
 import { ReserveStockUseCase } from './application/use-cases/reserve-stock.use-case.js';
 import { UpdateProductUseCase } from './application/use-cases/update-product.use-case.js';
 import { InventoryReservationsController } from './infrastructure/http/inventory-reservations.controller.js';
@@ -66,6 +68,18 @@ import {
       provide: ReleaseStockReservationUseCase,
       useFactory: (reservations: InventoryReservationRepository) =>
         new ReleaseStockReservationUseCase(reservations),
+      inject: [INVENTORY_RESERVATION_REPOSITORY],
+    },
+    {
+      provide: CancelStockReservationUseCase,
+      useFactory: (reservations: InventoryReservationRepository) =>
+        new CancelStockReservationUseCase(reservations),
+      inject: [INVENTORY_RESERVATION_REPOSITORY],
+    },
+    {
+      provide: FulfillStockReservationUseCase,
+      useFactory: (reservations: InventoryReservationRepository) =>
+        new FulfillStockReservationUseCase(reservations),
       inject: [INVENTORY_RESERVATION_REPOSITORY],
     },
     {

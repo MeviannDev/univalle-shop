@@ -203,7 +203,7 @@ describe('checkout e idempotencia', () => {
     expect(state.orders.orders.size).toBe(0);
   });
 
-  it('CreateOrderFromCart compensa reservas y restaura el carrito si Pagos falla', async () => {
+  it('CreateOrderFromCart conserva la orden y reserva si Pagos no responde', async () => {
     const state = fixture();
     await state.carts.save(createCart());
     state.payments.failure = new Error('Pagos timeout');
@@ -211,12 +211,53 @@ describe('checkout e idempotencia', () => {
       state.checkout.execute({ token: 'valid', idempotencyKey: 'payment-failure' }),
     ).rejects.toBeInstanceOf(ExternalServiceUnavailableError);
     const order = [...state.orders.orders.values()][0];
-    expect(order?.status.value).toBe('PAYMENT_FAILED');
-    expect(state.catalog.products.get(productId.value)?.stock).toBe(10);
-    expect(state.carts.carts.get(userId.value)?.items).toHaveLength(1);
+    expect(order?.status.value).toBe('PENDING_PAYMENT');
+    expect(order?.paymentId).toBeNull();
+    expect(state.catalog.products.get(productId.value)?.stock).toBe(8);
+    expect(state.catalog.reservations.size).toBe(1);
+    expect(state.carts.carts.get(userId.value)?.isEmpty).toBe(true);
+
+    state.payments.failure = null;
+    state.payments.status = 'APPROVED';
+    const retry = await state.checkout.execute({
+      token: 'valid',
+      idempotencyKey: 'payment-failure',
+    });
+    expect(retry.replayed).toBe(true);
+    expect(retry.order.status.value).toBe('PAID');
+    expect(state.catalog.products.get(productId.value)?.stock).toBe(8);
+    expect(state.catalog.reservations.size).toBe(0);
   });
 
-  it('CreateOrderFromCart compensa las reservas previas si Catálogo falla parcialmente', async () => {
+  it('CreateOrderFromCart recupera el pago aceptado cuando se pierde la respuesta', async () => {
+    const state = fixture();
+    await state.carts.save(createCart());
+    state.payments.status = 'APPROVED';
+    state.payments.failAfterAccept = true;
+
+    await expect(
+      state.checkout.execute({
+        token: 'valid',
+        idempotencyKey: 'payment-response-lost',
+      }),
+    ).rejects.toBeInstanceOf(ExternalServiceUnavailableError);
+
+    const pending = [...state.orders.orders.values()][0];
+    expect(pending?.status.value).toBe('PENDING_PAYMENT');
+    expect(pending?.paymentId).toBeNull();
+
+    const recovered = await state.checkout.execute({
+      token: 'valid',
+      idempotencyKey: 'payment-response-lost',
+    });
+
+    expect(recovered.order.id).toBe(pending?.id);
+    expect(recovered.order.paymentId).toBe('payment-1');
+    expect(recovered.order.status.value).toBe('PAID');
+    expect(state.catalog.products.get(productId.value)?.stock).toBe(8);
+  });
+
+  it('CreateOrderFromCart reanuda reservas idempotentes si Catálogo falla parcialmente', async () => {
     const state = fixture();
     const secondProductId = new ProductId('product-2');
     state.catalog.addProduct(secondProductId.value, 5);
@@ -230,10 +271,23 @@ describe('checkout e idempotencia', () => {
     await expect(
       state.checkout.execute({ token: 'valid', idempotencyKey: 'catalog-failure' }),
     ).rejects.toBeInstanceOf(ExternalServiceUnavailableError);
-    expect(state.catalog.products.get(productId.value)?.stock).toBe(10);
+    expect(state.catalog.products.get(productId.value)?.stock).toBe(8);
     expect(state.catalog.products.get(secondProductId.value)?.stock).toBe(5);
-    expect(state.catalog.reservations.size).toBe(0);
-    expect(state.orders.orders.size).toBe(0);
+    expect(state.catalog.reservations.size).toBe(1);
+    const pending = [...state.orders.orders.values()][0];
+    expect(pending?.status.value).toBe('PENDING_PAYMENT');
+    expect(pending?.reservationIds).toHaveLength(2);
+
+    state.catalog.failOnReservationNumber = null;
+    const retry = await state.checkout.execute({
+      token: 'valid',
+      idempotencyKey: 'catalog-failure',
+    });
+    expect(retry.replayed).toBe(true);
+    expect(retry.order.paymentId).toBe('payment-1');
+    expect(state.catalog.products.get(productId.value)?.stock).toBe(8);
+    expect(state.catalog.products.get(secondProductId.value)?.stock).toBe(4);
+    expect(state.catalog.reservations.size).toBe(2);
   });
 
   it('CreateOrderFromCart libera la reserva ante una carrera de checkout idempotente', async () => {
@@ -265,7 +319,11 @@ describe('checkout e idempotencia', () => {
     expect(result.order.status.value).toBe('PAID');
     expect(state.catalog.reservations.size).toBe(0);
     expect(state.catalog.products.get(productId.value)?.stock).toBe(8);
-    const callback = await new ApplyPaymentResult(state.orders, state.catalog).execute({
+    const callback = await new ApplyPaymentResult(
+      state.orders,
+      state.catalog,
+      state.payments,
+    ).execute({
       result: {
         paymentId: result.order.paymentId!,
         orderId: result.order.id,
@@ -341,9 +399,14 @@ describe('casos de uso de órdenes', () => {
     expect(result.order.status.value).toBe('CANCELLED');
   });
 
-  it('CancelOrder pide a Pagos cancelar o reembolsar antes de cerrar una orden pagada', async () => {
+  it('CancelOrder reembolsa y devuelve stock confirmado antes de cerrar la orden', async () => {
     const state = fixture();
-    const order = await seedOrder(state, 'paid-cancel', 'PAID');
+    state.payments.status = 'APPROVED';
+    await state.carts.save(createCart());
+    const { order } = await state.checkout.execute({
+      token: 'valid',
+      idempotencyKey: 'paid-cancel',
+    });
     const result = await new CancelOrder(
       state.orders,
       state.catalog,
@@ -352,6 +415,49 @@ describe('casos de uso de órdenes', () => {
     ).execute({ token: 'valid', orderId: order.id.value });
     expect(result.order.status.value).toBe('CANCELLED');
     expect(state.payments.cancellationRequests).toEqual([order.paymentId]);
+    expect(state.catalog.products.get(productId.value)?.stock).toBe(10);
+  });
+
+  it('ApplyPaymentResult reembolsa aprobación tardía tras cancelar una orden', async () => {
+    const state = fixture();
+    const order = Order.createFromCart(
+      new OrderId('late-callback-cancel'),
+      createCart(),
+      state.clock.now(),
+      userId.value,
+    );
+    const reservationId = 'late-callback-reservation';
+    await state.catalog.reserveStock({
+      reservationId,
+      productId,
+      quantity: new Quantity(2),
+    });
+    order.addReservationId(reservationId);
+    await state.orders.save(order);
+
+    await new CancelOrder(
+      state.orders,
+      state.catalog,
+      state.payments,
+      state.users,
+    ).execute({ token: 'valid', orderId: order.id.value });
+    const result = await new ApplyPaymentResult(
+      state.orders,
+      state.catalog,
+      state.payments,
+    ).execute({
+      result: {
+        paymentId: 'payment-late',
+        orderId: order.id,
+        result: 'APPROVED',
+        eventId: 'late-approved-event',
+      },
+    });
+
+    expect(result.order.status.value).toBe('CANCELLED');
+    expect(result.order.paymentId).toBe('payment-late');
+    expect(state.payments.cancellationRequests).toEqual(['payment-late']);
+    expect(state.catalog.products.get(productId.value)?.stock).toBe(10);
   });
 
   it('CancelOrder niega acceso a una orden ajena', async () => {
@@ -369,7 +475,11 @@ describe('casos de uso de órdenes', () => {
     const state = fixture();
     await state.carts.save(createCart());
     const checkout = await state.checkout.execute({ token: 'valid', idempotencyKey: 'apply-payment' });
-    const useCase = new ApplyPaymentResult(state.orders, state.catalog);
+    const useCase = new ApplyPaymentResult(
+      state.orders,
+      state.catalog,
+      state.payments,
+    );
     const event = {
       paymentId: checkout.order.paymentId!,
       orderId: checkout.order.id,
@@ -389,7 +499,11 @@ describe('casos de uso de órdenes', () => {
     const state = fixture();
     await state.carts.save(createCart());
     const checkout = await state.checkout.execute({ token: 'valid', idempotencyKey: 'rejected-payment' });
-    const useCase = new ApplyPaymentResult(state.orders, state.catalog);
+    const useCase = new ApplyPaymentResult(
+      state.orders,
+      state.catalog,
+      state.payments,
+    );
     await expect(
       useCase.execute({
         result: {
@@ -432,6 +546,7 @@ describe('casos de uso de órdenes', () => {
     const result = await new ApplyPaymentResult(
       state.orders,
       state.catalog,
+      state.payments,
     ).execute({
       result: {
         paymentId: 'payment-recovered',
