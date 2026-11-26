@@ -1,4 +1,70 @@
+name: univalle-shop
+
 services:
+  mongodb-orders:
+    image: mongo:8
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:27021:27017"
+    volumes:
+      - mongo-orders-data:/data/db
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mongosh --quiet --eval 'try { rs.status().ok } catch (error) { rs.initiate({ _id: \"rs0\", members: [{ _id: 0, host: \"mongodb-orders:27017\" }] }).ok }' | grep -q 1",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  mongodb-users:
+    image: mongo:8
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:27018:27017"
+    volumes:
+      - mongo-users-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mongodb-catalog:
+    image: mongo:8
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:27022:27017"
+    volumes:
+      - mongo-catalog-data:/data/db
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mongosh --quiet --eval 'try { rs.status().ok } catch (error) { rs.initiate({ _id: \"rs0\", members: [{ _id: 0, host: \"mongodb-catalog:27017\" }] }).ok }' | grep -q 1",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  mongodb-search:
+    image: mongo:8
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:27023:27017"
+    volumes:
+      - mongo-search-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   mongodb-payments:
     image: mongo:8
     restart: unless-stopped
@@ -25,6 +91,102 @@ services:
       timeout: 3s
       retries: 20
 
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+
+  users-service:
+    build:
+      context: ./users-service
+    restart: unless-stopped
+    depends_on:
+      mongodb-users:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    ports:
+      - "127.0.0.1:3002:3002"
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3002
+      MONGODB_URI: mongodb://mongodb-users:27017/univalle_users
+      MONGODB_DATABASE: univalle_users
+      JWT_SECRET: ${JWT_SECRET:-development-only-secret-change-before-deploy-32}
+      USERS_SERVICE_URL: http://users-service:3002
+      INSTITUTIONAL_EMAIL_DOMAIN: ${INSTITUTIONAL_EMAIL_DOMAIN:-correounivalle.edu.co}
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_SECURE: "false"
+      SMTP_FROM: ${SMTP_FROM:-Univalle Shop <no-reply@univalle.local>}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3002/api/docs').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
+  catalog-service:
+    build:
+      context: ./catalog-service
+    restart: unless-stopped
+    depends_on:
+      mongodb-catalog:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3006:3006"
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3006
+      MONGODB_URI: mongodb://mongodb-catalog:27017/univalle_catalog?replicaSet=rs0
+      INTERNAL_SERVICE_API_KEY: ${INTERNAL_SERVICE_API_KEY:-development-only-internal-api-key-change-before-deploy}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3006/api/docs').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
+  search-service:
+    build:
+      context: ./search-service
+    restart: unless-stopped
+    depends_on:
+      mongodb-search:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3007:3000"
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3000
+      MONGODB_URI: mongodb://mongodb-search:27017/univalle_search
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/docs').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
   payments-service:
     build:
       context: ./payments-service
@@ -37,8 +199,27 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3003
-      MONGODB_URI: ${MONGODB_URI:-mongodb://mongodb-payments:27017/univalle_payments}
-      PAYMENTS_SERVICE_URL: ${PAYMENTS_SERVICE_URL:-http://localhost:3003}
+      MONGODB_URI: mongodb://mongodb-payments:27017/univalle_payments
+      MONGODB_DATABASE: univalle_payments
+      INTERNAL_SERVICE_API_KEY: ${INTERNAL_SERVICE_API_KEY:-development-only-internal-api-key-change-before-deploy}
+      PAYMENT_SIMULATION_RESULT: ${PAYMENT_SIMULATION_RESULT:-auto}
+      PAYMENT_CALLBACK_ENABLED: "true"
+      ORDERS_CALLBACK_BASE_URL: http://orders-service:3001/api/orders
+      PAYMENT_CALLBACK_POLL_INTERVAL_MS: 1000
+      PAYMENT_CALLBACK_TIMEOUT_MS: 3000
+      PAYMENT_CALLBACK_MAX_ATTEMPTS: 10
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3003/api/docs').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
 
   recommendations-service:
     build:
@@ -52,9 +233,99 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3004
-      MONGODB_URI: ${MONGODB_URI:-mongodb://mongodb-recommendations:27017/univalle_recommendations}
-      RECOMMENDATIONS_SERVICE_URL: ${RECOMMENDATIONS_SERVICE_URL:-http://localhost:3004}
+      MONGODB_URI: mongodb://mongodb-recommendations:27017/univalle_recommendations
+      RECOMMENDATIONS_SERVICE_URL: http://recommendations-service:3004
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3004/api/docs').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
+  orders-service:
+    build:
+      context: ./orders-service
+    restart: unless-stopped
+    depends_on:
+      mongodb-orders:
+        condition: service_healthy
+      users-service:
+        condition: service_healthy
+      catalog-service:
+        condition: service_healthy
+      payments-service:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3001:3001"
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3001
+      MONGODB_URI: mongodb://mongodb-orders:27017/univalle_orders?replicaSet=rs0
+      MONGODB_DATABASE: univalle_orders
+      MONGODB_SERVER_SELECTION_TIMEOUT_MS: 5000
+      JWT_SECRET: ${JWT_SECRET:-development-only-secret-change-before-deploy-32}
+      INTERNAL_SERVICE_API_KEY: ${INTERNAL_SERVICE_API_KEY:-development-only-internal-api-key-change-before-deploy}
+      USERS_ADAPTER: http
+      CATALOG_ADAPTER: http
+      PAYMENTS_ADAPTER: http
+      USERS_SERVICE_URL: http://users-service:3002
+      CATALOG_SERVICE_URL: http://catalog-service:3006
+      PAYMENTS_SERVICE_URL: http://payments-service:3003
+      USERS_TIMEOUT_MS: 3000
+      CATALOG_TIMEOUT_MS: 3000
+      PAYMENTS_TIMEOUT_MS: 3000
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3001/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
+  api-gateway:
+    build:
+      context: ../api-gateway
+    restart: unless-stopped
+    depends_on:
+      users-service:
+        condition: service_healthy
+      orders-service:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3000
+      USERS_SERVICE_URL: http://users-service:3002
+      ORDERS_SERVICE_URL: http://orders-service:3001/api
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
 volumes:
+  mongo-orders-data:
+  mongo-users-data:
+  mongo-catalog-data:
+  mongo-search-data:
   mongo-payments-data:
   mongo-recommendations-data:

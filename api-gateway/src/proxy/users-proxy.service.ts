@@ -16,11 +16,15 @@ const REQUEST_HEADERS = [
 export class UsersProxyService {
   constructor(@Inject(APP_CONFIG) private readonly config: AppConfig) {}
 
-  async forward(request: Request): Promise<globalThis.Response> {
-    const basePath = this.config.usersServiceUrl.pathname.replace(/\/+$/, '');
+  async forward(
+    request: Request,
+    serviceUrl: URL = this.config.usersServiceUrl,
+    serviceName = 'Users',
+  ): Promise<globalThis.Response> {
+    const basePath = serviceUrl.pathname.replace(/\/+$/, '');
     const targetUrl = new URL(
       `${basePath}${request.originalUrl}`,
-      this.config.usersServiceUrl.origin,
+      serviceUrl.origin,
     );
     const headers = new Headers();
 
@@ -52,7 +56,7 @@ export class UsersProxyService {
         redirect: 'manual',
       });
     } catch (error) {
-      throw new BadGatewayException('Users service is unavailable', {
+      throw new BadGatewayException(`${serviceName} service is unavailable`, {
         cause: error,
       });
     }

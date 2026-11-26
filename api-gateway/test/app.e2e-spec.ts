@@ -1,28 +1,61 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from './../src/app.module.js';
+import { APP_CONFIG } from '../src/config/app-config.js';
 
-describe('HealthController (e2e)', () => {
+describe('API Gateway (e2e)', () => {
   let app: INestApplication;
+  const fetchMock = vi.fn();
 
   beforeEach(async () => {
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ id: 'order-1' }), {
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(APP_CONFIG)
+      .useValue({
+        port: 3000,
+        usersServiceUrl: new URL('http://users.internal:3002'),
+        ordersServiceUrl: new URL('http://orders.internal:3001/api'),
+      })
+      .compile();
 
     app = moduleFixture.createNestApplication();
     await app.init();
   });
 
-  it('/health (GET)', () => {
+  it('GET /health returns process health', () => {
     return request(app.getHttpServer())
       .get('/health')
       .expect(200)
       .expect({ status: 'ok' });
   });
 
+  it('forwards Orders routes to the prefixed service URL', async () => {
+    await request(app.getHttpServer())
+      .get('/orders/order-1?expand=items')
+      .set('Authorization', 'Bearer customer-token')
+      .expect(200)
+      .expect({ id: 'order-1' });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[0].toString()).toBe(
+      'http://orders.internal:3001/api/orders/order-1?expand=items',
+    );
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get('authorization'))
+      .toBe('Bearer customer-token');
+  });
+
   afterEach(async () => {
     await app.close();
+    vi.unstubAllGlobals();
   });
 });
