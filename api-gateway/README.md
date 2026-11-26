@@ -45,6 +45,17 @@ transacciones. El resto de los servicios tiene bases MongoDB independientes.
 Las credenciales incluidas como valores predeterminados son exclusivamente para
 desarrollo; configúralas mediante variables de entorno antes de un despliegue.
 
+Con el stack activo, ejecuta el flujo automatizado de registro, verificación,
+login, carrito, checkout y pago aprobado desde esta carpeta:
+
+```bash
+npm run test:e2e:compose
+```
+
+La prueba crea un producto desechable directamente en Catalog para preparar el
+inventario, ejecuta el flujo de usuario mediante el Gateway, comprueba la
+confirmación y devolución de stock, y elimina los datos de prueba.
+
 ## Health checks
 
 - `GET /health`: indica si el proceso del gateway está activo.
