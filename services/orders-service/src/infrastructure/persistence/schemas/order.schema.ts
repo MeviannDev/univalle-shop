@@ -24,6 +24,18 @@ export class StoredStatusHistory {
   actor!: string;
 }
 
+@Schema({ _id: false, versionKey: false })
+export class StoredCompensation {
+  @Prop({ required: true, enum: ['NONE', 'RELEASE_RESERVATIONS', 'COMMIT_RESERVATIONS', 'REFUND_AND_RELEASE'], type: String })
+  pending!: 'NONE' | 'RELEASE_RESERVATIONS' | 'COMMIT_RESERVATIONS' | 'REFUND_AND_RELEASE';
+
+  @Prop({ required: true, min: 0, type: Number, default: 0 })
+  attempts!: number;
+
+  @Prop({ type: String, default: null })
+  lastError!: string | null;
+}
+
 @Schema({ collection: 'orders', versionKey: false })
 export class OrderSchema {
   @Prop({ required: true, type: String })
@@ -55,6 +67,12 @@ export class OrderSchema {
 
   @Prop({ required: true, type: [String], default: [] })
   processedPaymentEventIds!: string[];
+
+  @Prop({ type: StoredCompensation, default: { pending: 'NONE', attempts: 0, lastError: null } })
+  compensation!: StoredCompensation;
+
+  @Prop({ type: Date, default: null })
+  reconciliationLockedUntil!: Date | null;
 
   @Prop({ required: true, type: [StoredStatusHistory] })
   statusHistory!: StoredStatusHistory[];

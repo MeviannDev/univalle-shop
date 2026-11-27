@@ -76,4 +76,33 @@ export class PaymentsHttpAdapter implements PaymentServicePort {
       ),
     );
   }
+
+  async getPayment(paymentId: string): Promise<PaymentInitiated | null> {
+    return adaptCall('Pagos', async () => {
+      const body = asRecord(
+        await this.http.request(
+          'payments',
+          `/payments/${encodeURIComponent(paymentId)}`,
+          { idempotent: true },
+        ),
+      );
+      if (!body.id) return null;
+      const rawStatus = requiredString(body.status, 'status').toLowerCase();
+      const status =
+        rawStatus === 'approved' ? 'APPROVED'
+          : rawStatus === 'rejected' ? 'REJECTED'
+          : rawStatus === 'pending' || rawStatus === 'processing' ? 'PENDING'
+          : null;
+      if (!status) {
+        throw new InvalidDependencyResponseError('Pagos');
+      }
+      return {
+        paymentId: requiredString(body.id, 'id'),
+        status: status as PaymentInitiated['status'],
+        ...(body.callbackEventId === undefined
+          ? {}
+          : { eventId: requiredString(body.callbackEventId, 'callbackEventId') }),
+      };
+    });
+  }
 }

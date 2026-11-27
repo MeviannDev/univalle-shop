@@ -14,6 +14,18 @@ export type StatusHistoryEntry = {
   actor: string;
 };
 
+export type PendingCompensation =
+  | 'NONE'
+  | 'RELEASE_RESERVATIONS'
+  | 'COMMIT_RESERVATIONS'
+  | 'REFUND_AND_RELEASE';
+
+export type CompensationState = {
+  pending: PendingCompensation;
+  attempts: number;
+  lastError: string | null;
+};
+
 export type OrderReconstitutionData = {
   id: OrderId;
   userId: UserId;
@@ -27,6 +39,8 @@ export type OrderReconstitutionData = {
   reservationIds: readonly string[];
   paymentId: string | null;
   processedPaymentEventIds: readonly string[];
+  compensation?: CompensationState;
+  reconciliationLockedUntil?: Date | null;
 };
 
 const transitions: Record<OrderStatusValue, readonly OrderStatusValue[]> = {
@@ -46,6 +60,12 @@ export class Order {
   private readonly reservationIdValues: string[] = [];
   private paymentIdValue: string | null = null;
   private readonly processedPaymentEventIdValues = new Set<string>();
+  private compensationState: CompensationState = {
+    pending: 'NONE',
+    attempts: 0,
+    lastError: null,
+  };
+  private reconciliationLockedUntilValue: Date | null = null;
 
   private constructor(
     public readonly id: OrderId,
@@ -60,6 +80,8 @@ export class Order {
     reservationIds: readonly string[] = [],
     paymentId: string | null = null,
     processedEventIds: readonly string[] = [],
+    compensation: CompensationState = { pending: 'NONE', attempts: 0, lastError: null },
+    reconciliationLockedUntil: Date | null = null,
   ) {
     this.createdAt = new Date(createdAt);
     this.updatedAtValue = new Date(updatedAt);
@@ -70,6 +92,10 @@ export class Order {
     this.reservationIdValues.push(...reservationIds);
     this.paymentIdValue = paymentId;
     processedEventIds.forEach((eventId) => this.processedPaymentEventIdValues.add(eventId));
+    this.compensationState = { ...compensation };
+    this.reconciliationLockedUntilValue = reconciliationLockedUntil
+      ? new Date(reconciliationLockedUntil)
+      : null;
   }
 
   public readonly createdAt: Date;
@@ -102,6 +128,8 @@ export class Order {
       [...data.reservationIds],
       data.paymentId,
       [...data.processedPaymentEventIds],
+      data.compensation,
+      data.reconciliationLockedUntil,
     );
   }
 
@@ -127,6 +155,36 @@ export class Order {
 
   get processedPaymentEventIds(): readonly string[] {
     return [...this.processedPaymentEventIdValues];
+  }
+
+  get compensation(): CompensationState {
+    return { ...this.compensationState };
+  }
+
+  get reconciliationLockedUntil(): Date | null {
+    return this.reconciliationLockedUntilValue
+      ? new Date(this.reconciliationLockedUntilValue)
+      : null;
+  }
+
+  markCompensationPending(pending: PendingCompensation, error: unknown): void {
+    this.compensationState = {
+      pending,
+      attempts: this.compensationState.attempts + 1,
+      lastError: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  clearCompensation(): void {
+    this.compensationState = { pending: 'NONE', attempts: 0, lastError: null };
+  }
+
+  lockReconciliation(until: Date): void {
+    this.reconciliationLockedUntilValue = new Date(until);
+  }
+
+  unlockReconciliation(): void {
+    this.reconciliationLockedUntilValue = null;
   }
 
   addReservationId(reservationId: string): void {

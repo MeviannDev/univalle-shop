@@ -70,18 +70,25 @@ export class ApplyPaymentResult {
       result.result === 'APPROVED' &&
       ['CANCELLED', 'PAYMENT_FAILED'].includes(order.status.value)
     ) {
-      await callExternal('Pagos', () =>
-        this.payments.cancelOrRefundPayment({
-          paymentId: result.paymentId,
-          orderId: order.id,
-          idempotencyKey: `cancel-${order.id.value}`,
-        }),
-      );
-      for (const reservationId of order.reservationIds) {
-        await callExternal('Catálogo', () =>
-          this.catalog.cancelStockReservation(reservationId),
+      try {
+        await callExternal('Pagos', () =>
+          this.payments.cancelOrRefundPayment({
+            paymentId: result.paymentId,
+            orderId: order.id,
+            idempotencyKey: `cancel-${order.id.value}`,
+          }),
         );
+        for (const reservationId of order.reservationIds) {
+          await callExternal('Catálogo', () =>
+            this.catalog.cancelStockReservation(reservationId),
+          );
+        }
+      } catch (error) {
+        order.markCompensationPending('REFUND_AND_RELEASE', error);
+        await callExternal('Persistencia de órdenes', () => this.orders.save(order));
+        throw error;
       }
+      order.clearCompensation();
       order.recordPaymentEvent(result.eventId);
       const saved = await callExternal('Persistencia de órdenes', () =>
         this.orders.savePaymentResultOnce(order, result),
@@ -117,21 +124,35 @@ export class ApplyPaymentResult {
       if (!order.canTransitionTo('PAID')) {
         throw new InvalidOrderTransitionError(order.status.value, 'PAID');
       }
-      for (const reservationId of order.reservationIds) {
-        await callExternal('Catálogo', () =>
-          this.catalog.commitStock(reservationId),
-        );
+      try {
+        for (const reservationId of order.reservationIds) {
+          await callExternal('Catálogo', () =>
+            this.catalog.commitStock(reservationId),
+          );
+        }
+      } catch (error) {
+        order.markCompensationPending('COMMIT_RESERVATIONS', error);
+        await callExternal('Persistencia de órdenes', () => this.orders.save(order));
+        throw error;
       }
+      order.clearCompensation();
       order.markAsPaid();
     } else if (result.result === 'REJECTED') {
       if (!order.canTransitionTo('PAYMENT_FAILED')) {
         throw new InvalidOrderTransitionError(order.status.value, 'PAYMENT_FAILED');
       }
-      for (const reservationId of order.reservationIds) {
-        await callExternal('Catálogo', () =>
-          this.catalog.releaseStock(reservationId),
-        );
+      try {
+        for (const reservationId of order.reservationIds) {
+          await callExternal('Catálogo', () =>
+            this.catalog.releaseStock(reservationId),
+          );
+        }
+      } catch (error) {
+        order.markCompensationPending('RELEASE_RESERVATIONS', error);
+        await callExternal('Persistencia de órdenes', () => this.orders.save(order));
+        throw error;
       }
+      order.clearCompensation();
       order.markPaymentFailed();
     }
     order.recordPaymentEvent(result.eventId);

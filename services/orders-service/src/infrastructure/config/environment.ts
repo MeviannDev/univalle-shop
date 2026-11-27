@@ -64,6 +64,11 @@ export function validateEnvironment(environment: Record<string, unknown>): Recor
     'CATALOG_TIMEOUT_MS',
     'PAYMENTS_TIMEOUT_MS',
     'MONGODB_SERVER_SELECTION_TIMEOUT_MS',
+    'ORDERS_RECONCILIATION_INTERVAL_MS',
+    'ORDERS_RECONCILIATION_PENDING_AGE_MS',
+    'ORDERS_RECONCILIATION_LEASE_MS',
+    'ORDERS_RECONCILIATION_MAX_ATTEMPTS',
+    'ORDERS_RECONCILIATION_LIMIT',
   ]) {
     const value = env[timeoutName];
     if (value !== undefined && (!/^\d+$/.test(value) || Number(value) < 1)) {

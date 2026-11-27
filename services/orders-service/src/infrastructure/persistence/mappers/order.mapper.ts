@@ -37,6 +37,12 @@ export class OrderMapper {
       reservationIds: document.reservationIds,
       paymentId: document.paymentId,
       processedPaymentEventIds: document.processedPaymentEventIds,
+      compensation: document.compensation ?? {
+        pending: 'NONE',
+        attempts: 0,
+        lastError: null,
+      },
+      reconciliationLockedUntil: document.reconciliationLockedUntil ?? null,
     };
     return Order.reconstitute(data);
   }
@@ -62,6 +68,8 @@ export class OrderMapper {
       paymentId: order.paymentId,
       reservationIds: [...order.reservationIds],
       processedPaymentEventIds: [...order.processedPaymentEventIds],
+      compensation: order.compensation,
+      reconciliationLockedUntil: order.reconciliationLockedUntil,
       statusHistory: order.statusHistory.map((entry) => ({ ...entry })),
       createdBy: order.statusHistory[0]?.actor ?? order.userId.value,
       createdAt: order.createdAt,

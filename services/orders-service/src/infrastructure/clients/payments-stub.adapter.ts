@@ -39,4 +39,11 @@ export class PaymentsStubAdapter implements PaymentServicePort {
       throw new Error('Solicitud de cancelación de pago inválida');
     }
   }
+
+  async getPayment(paymentId: string): Promise<PaymentInitiated | null> {
+    for (const payment of this.payments.values()) {
+      if (payment.paymentId === paymentId) return payment;
+    }
+    return null;
+  }
 }

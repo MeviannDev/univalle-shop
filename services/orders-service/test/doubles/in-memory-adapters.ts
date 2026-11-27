@@ -148,6 +148,32 @@ export class InMemoryOrderRepository implements OrderRepository {
     );
   }
 
+  async claimForReconciliation(
+    cutoff: Date,
+    maxAttempts: number,
+    limit: number,
+    leaseUntil: Date,
+  ) {
+    const claimed = [];
+    for (const order of this.orders.values()) {
+      if (claimed.length >= limit) break;
+      const compensation = order.compensation;
+      const eligible =
+        (order.status.value === 'PENDING_PAYMENT' && order.updatedAt < cutoff) ||
+        compensation.pending !== 'NONE';
+      const locked = order.reconciliationLockedUntil;
+      if (
+        eligible &&
+        compensation.attempts < maxAttempts &&
+        (!locked || locked <= new Date())
+      ) {
+        order.lockReconciliation(leaseUntil);
+        claimed.push(order);
+      }
+    }
+    return claimed;
+  }
+
   private paginate(orders: Order[], request: PageRequest): Page<Order> {
     const start = (request.page - 1) * request.limit;
     return {
@@ -363,6 +389,14 @@ export class FakePaymentService implements PaymentServicePort {
       throw this.failure;
     }
     this.cancellationRequests.push(request.paymentId);
+  }
+
+  async getPayment(paymentId: string): Promise<PaymentInitiated | null> {
+    if (this.failure) throw this.failure;
+    for (const payment of this.payments.values()) {
+      if (payment.paymentId === paymentId) return payment;
+    }
+    return null;
   }
 }
 

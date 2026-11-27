@@ -21,6 +21,8 @@ import { CreateOrderFromCart } from './use-cases/orders/create-order-from-cart.u
 import { GetOrderById } from './use-cases/orders/get-order-by-id.use-case.js';
 import { ListOrdersAdmin } from './use-cases/orders/list-orders-admin.use-case.js';
 import { ListUserOrders } from './use-cases/orders/list-user-orders.use-case.js';
+import { ReconcilePendingOrders } from './use-cases/orders/reconcile-pending-orders.use-case.js';
+import { ConfigService } from '@nestjs/config';
 
 const useCaseProviders = [
   {
@@ -102,6 +104,12 @@ const useCaseProviders = [
     inject: [ORDER_REPOSITORY, CATALOG_SERVICE, PAYMENT_SERVICE, USER_SERVICE],
     useFactory: (...dependencies: ConstructorParameters<typeof UpdateOrderStatusAdmin>) =>
       new UpdateOrderStatusAdmin(...dependencies),
+  },
+  {
+    provide: ReconcilePendingOrders,
+    inject: [ORDER_REPOSITORY, CATALOG_SERVICE, PAYMENT_SERVICE, ConfigService],
+    useFactory: (...dependencies: ConstructorParameters<typeof ReconcilePendingOrders>) =>
+      new ReconcilePendingOrders(...dependencies),
   },
 ];
 

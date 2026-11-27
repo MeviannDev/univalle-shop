@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ConfigService } from '@nestjs/config';
 import { AddItemToCart } from '../src/application/use-cases/cart/add-item-to-cart.use-case.js';
 import { ClearCart } from '../src/application/use-cases/cart/clear-cart.use-case.js';
 import { GetCart } from '../src/application/use-cases/cart/get-cart.use-case.js';
@@ -8,6 +9,7 @@ import { UpdateOrderStatusAdmin } from '../src/application/use-cases/admin/updat
 import { ApplyPaymentResult } from '../src/application/use-cases/orders/apply-payment-result.use-case.js';
 import { CancelOrder } from '../src/application/use-cases/orders/cancel-order.use-case.js';
 import { CreateOrderFromCart } from '../src/application/use-cases/orders/create-order-from-cart.use-case.js';
+import { ReconcilePendingOrders } from '../src/application/use-cases/orders/reconcile-pending-orders.use-case.js';
 import { GetOrderById } from '../src/application/use-cases/orders/get-order-by-id.use-case.js';
 import { ListOrdersAdmin } from '../src/application/use-cases/orders/list-orders-admin.use-case.js';
 import { ListUserOrders } from '../src/application/use-cases/orders/list-user-orders.use-case.js';
@@ -602,6 +604,102 @@ describe('casos de uso administrativos', () => {
         status: 'SHIPPED',
       }),
     ).rejects.toBeInstanceOf(ForbiddenAccessError);
+  });
+});
+
+describe('reconciliador de órdenes', () => {
+  it('persiste una compensación fallida y la recupera en el siguiente intento', async () => {
+    const state = fixture();
+    const order = await seedOrder(state, 'order-reconcile-release');
+    order.markCompensationPending('RELEASE_RESERVATIONS', new Error('Catálogo caído'));
+    await state.orders.save(order);
+    state.catalog.failures.cancelStockReservation = new Error('Catálogo caído');
+    const reconciler = new ReconcilePendingOrders(
+      state.orders,
+      state.catalog,
+      state.payments,
+      new ConfigService({
+        NODE_ENV: 'test',
+        ORDERS_RECONCILIATION_PENDING_AGE_MS: '1',
+        ORDERS_RECONCILIATION_MAX_ATTEMPTS: '10',
+        ORDERS_RECONCILIATION_LIMIT: '50',
+        ORDERS_RECONCILIATION_LEASE_MS: '60000',
+      }),
+    );
+    const failed = await reconciler.execute();
+    expect(failed.failed).toBe(1);
+    expect((await state.orders.findById(order.id))?.compensation.pending)
+      .toBe('RELEASE_RESERVATIONS');
+    state.catalog.failures.cancelStockReservation = undefined;
+    const recovered = await reconciler.execute();
+    expect(recovered.resolved).toBe(1);
+  });
+
+  it('confirma una pendiente antigua cuyo pago consta aprobado', async () => {
+    const state = fixture();
+    const order = await seedOrder(state, 'order-reconcile-approved');
+    state.payments.status = 'APPROVED';
+    const payment = await state.payments.startPayment({
+      orderId: order.id,
+      userId: order.userId,
+      amount: order.total,
+      idempotencyKey: 'reconcile-approved',
+    });
+    order.setPaymentId(payment.paymentId);
+    await state.orders.save(order);
+    const reconciler = new ReconcilePendingOrders(
+      state.orders,
+      state.catalog,
+      state.payments,
+      new ConfigService({ NODE_ENV: 'test', ORDERS_RECONCILIATION_PENDING_AGE_MS: '1' }),
+    );
+    await reconciler.execute();
+    expect((await state.orders.findById(order.id))?.status.value).toBe('PAID');
+  });
+
+  it('libera y cancela una pendiente antigua sin pago aprobado', async () => {
+    const state = fixture();
+    const order = await seedOrder(state, 'order-reconcile-rejected');
+    state.payments.status = 'REJECTED';
+    const payment = await state.payments.startPayment({
+      orderId: order.id,
+      userId: order.userId,
+      amount: order.total,
+      idempotencyKey: 'reconcile-rejected',
+    });
+    order.setPaymentId(payment.paymentId);
+    await state.orders.save(order);
+    const reconciler = new ReconcilePendingOrders(
+      state.orders,
+      state.catalog,
+      state.payments,
+      new ConfigService({ NODE_ENV: 'test', ORDERS_RECONCILIATION_PENDING_AGE_MS: '1' }),
+    );
+    await reconciler.execute();
+    expect((await state.orders.findById(order.id))?.status.value).toBe('CANCELLED');
+  });
+
+  it('es idempotente al ejecutar el reconciliador dos veces', async () => {
+    const state = fixture();
+    const order = await seedOrder(state, 'order-reconcile-double');
+    state.payments.status = 'APPROVED';
+    const payment = await state.payments.startPayment({
+      orderId: order.id,
+      userId: order.userId,
+      amount: order.total,
+      idempotencyKey: 'reconcile-double',
+    });
+    order.setPaymentId(payment.paymentId);
+    await state.orders.save(order);
+    const reconciler = new ReconcilePendingOrders(
+      state.orders,
+      state.catalog,
+      state.payments,
+      new ConfigService({ NODE_ENV: 'test', ORDERS_RECONCILIATION_PENDING_AGE_MS: '1' }),
+    );
+    await reconciler.execute();
+    const second = await reconciler.execute();
+    expect(second.candidates).toBe(0);
   });
 });
 

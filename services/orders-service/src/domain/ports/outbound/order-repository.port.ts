@@ -60,4 +60,10 @@ export interface OrderRepository {
   ): Promise<SavePaymentResultOutcome>;
   listByUser(userId: UserId, filter: OrderFilter, page: PageRequest): Promise<Page<Order>>;
   listAll(filter: AdminOrderFilter, page: PageRequest): Promise<Page<Order>>;
+  claimForReconciliation(
+    cutoff: Date,
+    maxAttempts: number,
+    limit: number,
+    leaseUntil: Date,
+  ): Promise<readonly Order[]>;
 }

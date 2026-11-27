@@ -155,6 +155,42 @@ export class MongooseOrderRepository implements OrderRepository {
     return this.paginate(query, page);
   }
 
+  async claimForReconciliation(
+    cutoff: Date,
+    maxAttempts: number,
+    limit: number,
+    leaseUntil: Date,
+  ): Promise<readonly Order[]> {
+    const claimed: Order[] = [];
+    const query = {
+      $and: [
+        {
+          $or: [
+            { status: 'PENDING_PAYMENT', updatedAt: { $lt: cutoff } },
+            { 'compensation.pending': { $ne: 'NONE' } },
+          ],
+        },
+        { 'compensation.attempts': { $lt: maxAttempts } },
+        {
+          $or: [
+            { reconciliationLockedUntil: null },
+            { reconciliationLockedUntil: { $lte: new Date() } },
+          ],
+        },
+      ],
+    };
+    for (let index = 0; index < limit; index += 1) {
+      const document = await this.orders.findOneAndUpdate(
+        query,
+        { $set: { reconciliationLockedUntil: leaseUntil } },
+        { sort: { updatedAt: 1 }, new: true },
+      ).exec();
+      if (!document) break;
+      claimed.push(OrderMapper.toDomain(document));
+    }
+    return claimed;
+  }
+
   private async paginate(
     filter: Record<string, unknown>,
     page: PageRequest,

@@ -36,26 +36,41 @@ export class CancelOrder {
     if (!order.canTransitionTo('CANCELLED')) {
       order.cancel(actor.userId.value);
     }
-    if (order.paymentId && previousStatus !== 'PAYMENT_FAILED') {
-      await callExternal('Pagos', () =>
-        this.payments.cancelOrRefundPayment({
-          paymentId: order.paymentId!,
-          orderId: order.id,
-          idempotencyKey: `cancel-${order.id.value}`,
-        }),
-      );
-    }
     if (
       previousStatus === 'PENDING_PAYMENT' ||
       previousStatus === 'PAID' ||
       previousStatus === 'PROCESSING'
     ) {
-      for (const reservationId of order.reservationIds) {
-        await callExternal('Catálogo', () =>
-          this.catalog.cancelStockReservation(reservationId),
+      order.markCompensationPending(
+        order.paymentId ? 'REFUND_AND_RELEASE' : 'RELEASE_RESERVATIONS',
+        'Compensación iniciada',
+      );
+      await callExternal('Persistencia de órdenes', () => this.orders.save(order));
+      try {
+        if (order.paymentId) {
+          await callExternal('Pagos', () =>
+            this.payments.cancelOrRefundPayment({
+              paymentId: order.paymentId!,
+              orderId: order.id,
+              idempotencyKey: `cancel-${order.id.value}`,
+            }),
+          );
+        }
+        for (const reservationId of order.reservationIds) {
+          await callExternal('Catálogo', () =>
+            this.catalog.cancelStockReservation(reservationId),
+          );
+        }
+      } catch (error) {
+        order.markCompensationPending(
+          order.paymentId ? 'REFUND_AND_RELEASE' : 'RELEASE_RESERVATIONS',
+          error,
         );
+        await callExternal('Persistencia de órdenes', () => this.orders.save(order));
+        throw error;
       }
     }
+    order.clearCompensation();
     order.cancel(actor.userId.value);
     await callExternal('Persistencia de órdenes', () => this.orders.save(order));
     return { order };

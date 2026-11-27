@@ -32,5 +32,6 @@ export type CancelOrRefundPaymentRequest = {
 
 export interface PaymentServicePort {
   startPayment(request: StartPaymentRequest): Promise<PaymentInitiated>;
+  getPayment(paymentId: string): Promise<PaymentInitiated | null>;
   cancelOrRefundPayment(request: CancelOrRefundPaymentRequest): Promise<void>;
 }

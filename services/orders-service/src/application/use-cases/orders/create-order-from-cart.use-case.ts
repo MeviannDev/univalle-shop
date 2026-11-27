@@ -211,6 +211,13 @@ export class CreateOrderFromCart {
       if (!(error instanceof ProductUnavailableError)) throw error;
       const failures = await this.cancelReservations(order.reservationIds);
       if (failures.length > 0) {
+        order.markCompensationPending(
+          'RELEASE_RESERVATIONS',
+          failures[0],
+        );
+        await callExternal('Persistencia de órdenes', () =>
+          this.orders.save(order),
+        );
         throw new CompensationFailedError(error, failures);
       }
       order.markPaymentFailed();
