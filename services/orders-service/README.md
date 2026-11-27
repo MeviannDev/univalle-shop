@@ -46,3 +46,26 @@ la API key interna de ejemplo fuera del desarrollo local.
 Los resultados de pago se guardan junto con el evento en una transacción
 MongoDB; por ello, el MongoDB de integración/despliegue debe soportar
 transacciones (replica set o clúster sharded).
+
+## Reconciliación
+
+Orders ejecuta un reconciliador periódico que busca:
+
+- Órdenes `PENDING_PAYMENT` antiguas para consultar Payments y confirmar,
+  rechazar o cancelar según el estado real del pago.
+- Compensaciones persistidas en la orden para reintentar liberación,
+  confirmación o reembolso sin duplicar operaciones.
+
+Variables configurables:
+
+| Variable | Predeterminado | Uso |
+|---|---:|---|
+| `ORDERS_RECONCILIATION_INTERVAL_MS` | `30000` | Intervalo entre ejecuciones |
+| `ORDERS_RECONCILIATION_PENDING_AGE_MS` | `300000` | Antigüedad mínima de una orden pendiente |
+| `ORDERS_RECONCILIATION_MAX_ATTEMPTS` | `10` | Máximo de reintentos persistidos |
+| `ORDERS_RECONCILIATION_LIMIT` | `50` | Órdenes reclamadas por ejecución |
+| `ORDERS_RECONCILIATION_LEASE_MS` | `60000` | Duración del bloqueo de reconciliación |
+
+Las operaciones usan claves idempotentes para reservas y pagos. Una ejecución
+repetida no cambia de nuevo una orden ya resuelta y deja `compensation` visible
+en la orden cuando el servicio externo continúa fallando.
