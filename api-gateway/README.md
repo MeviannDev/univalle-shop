@@ -50,16 +50,34 @@ transacciones. El resto de los servicios tiene bases MongoDB independientes.
 Las credenciales incluidas como valores predeterminados son exclusivamente para
 desarrollo; configúralas mediante variables de entorno antes de un despliegue.
 
-Con el stack activo, ejecuta el flujo automatizado de registro, verificación,
-login, carrito, checkout y pago aprobado desde esta carpeta:
+Con el stack activo, ejecuta el flujo automatizado desde esta carpeta:
 
 ```bash
 npm run test:e2e:compose
 ```
 
-La prueba crea un producto desechable directamente en Catalog para preparar el
-inventario, ejecuta el flujo de usuario mediante el Gateway, comprueba la
-confirmación y devolución de stock, y elimina los datos de prueba.
+La prueba cubre registro y pago aprobado, cancelación y restauración de stock,
+producto inexistente, JWT inválido y usuario suspendido, callback interno,
+idempotencia y dos usuarios compitiendo por la última unidad. También detiene
+Payments durante un checkout y verifica la cancelación y liberación al
+reconciliar. Para ese escenario configura antes de iniciar Compose un intervalo
+de `1000` ms, una antigüedad pendiente de `15000` ms y un lease de `10000` ms
+mediante `ORDERS_RECONCILIATION_INTERVAL_MS`,
+`ORDERS_RECONCILIATION_PENDING_AGE_MS` y
+`ORDERS_RECONCILIATION_LEASE_MS`. Ejemplo desde la raíz del repositorio:
+
+```powershell
+$env:ORDERS_RECONCILIATION_INTERVAL_MS = "1000"
+$env:ORDERS_RECONCILIATION_PENDING_AGE_MS = "15000"
+$env:ORDERS_RECONCILIATION_LEASE_MS = "10000"
+docker compose -f services\compose.yaml up -d --build
+```
+
+Si Catalog no está disponible antes de crear la orden, Orders devuelve
+`503 DEPENDENCY_UNAVAILABLE` sin persistir orden ni reserva. La prueba verifica
+ese estado limpio y repite el checkout tras restaurar Catalog; no afirma que el
+reconciliador haya resuelto una orden en ese escenario. La prueba elimina sus
+usuarios, órdenes, reservas y productos desechables.
 
 ## Health checks
 

@@ -2,6 +2,7 @@ name: Orders closure verification
 
 on:
   pull_request:
+  workflow_dispatch:
   push:
     branches: [main]
 
@@ -54,6 +55,10 @@ jobs:
     name: Docker Compose E2E
     runs-on: ubuntu-latest
     needs: unit
+    env:
+      ORDERS_RECONCILIATION_INTERVAL_MS: 1000
+      ORDERS_RECONCILIATION_PENDING_AGE_MS: 15000
+      ORDERS_RECONCILIATION_LEASE_MS: 10000
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

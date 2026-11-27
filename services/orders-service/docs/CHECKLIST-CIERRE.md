@@ -1,52 +1,45 @@
 # Checklist de cierre - Orders
 
-Fecha de verificacion: 2026-11-26
+Fecha de verificacion: 2026-11-27
 Rama: `feature/orders-cierre-100`
-Commits de cierre: `5a8a8bc`, `b51c35c`, `2d75936`
+Umbral Compose usado en pruebas: intervalo `1000` ms, edad pendiente `15000` ms y lease `10000` ms.
 
 | ID | Requisito | Estado | Evidencia | Como reproducirlo | Resultado observado |
 |---|---|---|---|---|---|
-| R1 | Compensacion fallida persistida y reintentada | CUMPLE | [order.ts](../src/domain/entities/order.ts:170), [reconcile-pending-orders.use-case.ts](../src/application/use-cases/orders/reconcile-pending-orders.use-case.ts:21), [application.use-cases.spec.ts](../../test/application.use-cases.spec.ts:610) | `cd services/orders-service && npm run test -- application.use-cases.spec.ts` | 61 pruebas unitarias totales pasaron; compensacion fallida recuperada en el siguiente intento. |
-| R2 | Reconciliador de pendientes antiguas con umbral configurable | CUMPLE | [reconcile-pending-orders.use-case.ts](../src/application/use-cases/orders/reconcile-pending-orders.use-case.ts:54), [.env.example](../.env.example:23) | Configurar `ORDERS_RECONCILIATION_PENDING_AGE_MS` y ejecutar `npm run test -- application.use-cases.spec.ts` | Variables interval/age/max/limit/lease validadas y pruebas aprobadas para pago aprobado/rechazado. |
-| R3 | Reconciliador idempotente con doble ejecucion | CUMPLE | [application.use-cases.spec.ts](../../test/application.use-cases.spec.ts:682), [mongoose-order.repository.ts](../src/infrastructure/persistence/repositories/mongoose-order.repository.ts:158) | `cd services/orders-service && npm run test -- application.use-cases.spec.ts` | Segunda ejecucion candidato=0 en la prueba; claim usa lease y lock persistente. |
-| R4 | Callback no accesible desde el Gateway | CUMPLE | [users-proxy.controller.ts](../../../api-gateway/src/proxy/users-proxy.controller.ts:38), [app.e2e-spec.ts](../../../api-gateway/test/app.e2e-spec.ts:64) | `cd api-gateway && npm run test:e2e` | 5 pruebas e2e Gateway pasaron; POST externo a `/orders/:id/payment-result` respondio 404 en la prueba. |
-| R5 | Callback rechaza API key invalida/ausente en stack real | CUMPLE | [compose-flow.e2e.mjs](../../../api-gateway/scripts/compose-flow.e2e.mjs:110) | Levantar Compose y `cd api-gateway && npm run test:e2e:compose` | Directo a `/api/orders/:id/payment-result`: sin API key 401 e invalida 401. |
-| R6 | Stock insuficiente de punta a punta | CUMPLE | [compose-flow.e2e.mjs](../../../api-gateway/scripts/compose-flow.e2e.mjs:150), [inventory-reservations.spec.ts](../../catalog-service/test/inventory-reservations.spec.ts:103) | `npm run test:e2e:compose` con Compose activo | Producto stock 1 + carrito quantity 2 respondio 409; 12 reservas concurrentes dejaron 4 exitosas y stock 0 en el test real de Mongo replica set. |
-| R7 | Producto inexistente 404 de punta a punta | CUMPLE | [compose-flow.e2e.mjs](../../../api-gateway/scripts/compose-flow.e2e.mjs:145) | `npm run test:e2e:compose` | Catalog directo devolvio 404 para un ObjectId inexistente. Orders conserva el mapeo interno a conflicto de producto donde aplica el carrito. |
-| R8 | JWT invalido o ausente de punta a punta | CUMPLE | [compose-flow.e2e.mjs](../../../api-gateway/scripts/compose-flow.e2e.mjs:115) | `npm run test:e2e:compose` | Sin token y con `Bearer invalid.jwt.token`, `/orders` respondio 401. |
-| R9 | Usuario suspendido/eliminado | CUMPLE | [compose-flow.e2e.mjs](../../../api-gateway/scripts/compose-flow.e2e.mjs:225) | Suspender mediante la base real en el script y ejecutar `npm run test:e2e:compose` | Login suspendido fue rechazado por el stack real (401/403 segun Users). Eliminacion no tuvo caso separado; queda cubierto el comportamiento de perfil suspendido y el adaptador ya valida 404/401. |
-| R10 | Caida de Payments y recuperacion | NO VERIFICADO | El reconciliador unitario cubre pago aprobado/no aprobado, pero no se detuvo ni reinicio `payments-service` durante el e2e final. | Recomendado: `docker compose stop payments-service`, ejecutar checkout, `docker compose start payments-service`, esperar reconciliacion y consultar la orden. | No se afirmo por no haberse ejecutado la ventana real de caida. |
-| R11 | Caida de Catalog y recuperacion | NO VERIFICADO | No se detuvo `catalog-service` en el e2e final. Hay pruebas unitarias de reserva parcial y recuperacion. | Recomendado: `docker compose stop catalog-service`, ejecutar checkout, iniciar Catalog y ejecutar el reconciliador. | No se verifico en el stack vivo. |
-| R12 | Ultima unidad con dos checkouts simultaneos | CUMPLE | [inventory-reservations.spec.ts](../../catalog-service/test/inventory-reservations.spec.ts:103) | `cd services/catalog-service && npm run test` | 12 reservas concurrentes sobre stock 4; solo 4 tuvieron exito y stock no fue negativo. En Compose se anadio una prueba paralela con la misma clave, no dos usuarios sobre la ultima unidad. |
-| R13 | Misma Idempotency-Key en paralelo | CUMPLE | [compose-flow.e2e.mjs](../../../api-gateway/scripts/compose-flow.e2e.mjs:197), [inventory-reservations.spec.ts](../../catalog-service/test/inventory-reservations.spec.ts:132) | `npm run test:e2e:compose` | Dos requests paralelos reutilizaron una sola orden; el test de reserva Mongo tambien replayo el mismo ID una sola vez. |
-| R14 | E2E feliz de Compose sigue pasando | CUMPLE | [compose-flow.e2e.mjs](../../../api-gateway/scripts/compose-flow.e2e.mjs:241) | `docker compose -f services/compose.yaml up -d --build && cd api-gateway && npm run test:e2e:compose && docker compose -f services/compose.yaml down` | Pasaron registro, verificacion, login, carrito, checkout, pago aprobado, cancelacion y restauracion de stock. |
-| R15 | CI existente y alcance | CUMPLE | [orders-closure.yml](../../../.github/workflows/orders-closure.yml:1) | GitHub Actions: ejecutar el workflow `Orders closure verification` | CI separa unitarios/build/e2e y Compose E2E con build de imagenes, healthchecks y recoleccion de logs. |
-| R16 | Secretos fuera del repo y .env.example actualizado | CUMPLE | [.env.example](../.env.example:23), [compose.yaml](../../../services/compose.yaml) | Revisar `.env.example` y `git grep -n "JWT_SECRET\\|INTERNAL_SERVICE_API_KEY"` | Solo valores de desarrollo en ejemplos/Compose; `.env` permanece ignorado. |
-| R17 | README/Swagger y contratos actualizados | CUMPLE | [README.md](../../../api-gateway/README.md), [orders README](../README.md), [orders controller](../src/infrastructure/http/controllers/orders.controller.ts:57) | Revisar README/Swagger y ejecutar los comandos documentados | Se documentaron Gateway, callback interno y variables de reconciliacion. |
-| R18 | Request ID en logs | CUMPLE | [request-id.context.ts](../src/infrastructure/clients/request-id.context.ts:9), [reconcile-pending-orders.use-case.ts](../src/application/use-cases/orders/reconcile-pending-orders.use-case.ts:87) | Ejecutar pruebas unitarias/e2e y observar logs JSON del reconciliador | Propagacion `x-request-id` existente y logs estructurados JSON con `requestId` en reconciliacion. |
+| R1 | Compensacion fallida persistida y reintentada | CUMPLE | `services/orders-service/test/application.use-cases.spec.ts:611` | `cd services/orders-service; npm run test` | 62 pruebas pasan; el fallo queda persistido y el siguiente intento recupera la compensacion. |
+| R2 | Reconciliador de pendientes antiguas con umbral configurable | CUMPLE | `services/orders-service/src/application/use-cases/orders/reconcile-pending-orders.use-case.ts:54`; `services/orders-service/.env.example:24` | Definir `ORDERS_RECONCILIATION_PENDING_AGE_MS`; `npm run test` | Compose se ejecuto con edad 15000 ms e intervalo 1000 ms. Las pruebas cubren pago aprobado y no aprobado. |
+| R3 | Claim de reconciliador idempotente bajo ejecuciones concurrentes | CUMPLE | `services/orders-service/test/mongoose-repositories.spec.ts:88` | `cd services/orders-service; npm run test -- mongoose-repositories.spec.ts` | 6 pruebas pasan contra MongoMemoryReplSet; dos instancias del repositorio reclaman concurrentemente y exactamente una obtiene la orden. No son dos procesos Nest separados. |
+| R4 | Callback no accesible desde el Gateway | CUMPLE | `api-gateway/src/proxy/users-proxy.controller.ts:38`; `api-gateway/test/app.e2e-spec.ts:64` | `cd api-gateway; npm run test:e2e` | 5 pruebas e2e pasan; la ruta externa de callback devuelve 404. |
+| R5 | Callback rechaza API key invalida o ausente en stack real | CUMPLE | `api-gateway/scripts/compose-flow.e2e.mjs:156` | Con Compose activo: `cd api-gateway; npm run test:e2e:compose` | La llamada directa a Orders devuelve 401 sin clave y con clave incorrecta. |
+| R6 | Stock insuficiente de punta a punta | PARCIAL | `api-gateway/scripts/compose-flow.e2e.mjs:205`; `services/catalog-service/test/inventory-reservations.spec.ts` | `npm run test:e2e:compose` y `cd services/catalog-service; npm run test` | Gateway responde 409 al intentar agregar cantidad 2 cuando stock es 1. No llega a checkout porque Orders valida y rechaza el item al agregarlo; no se presenta como checkout completo. |
+| R7 | Producto inexistente 404/contrato de error de Orders | CUMPLE | `api-gateway/scripts/compose-flow.e2e.mjs:124` | Con Compose activo: `cd api-gateway; npm run test:e2e:compose` | Checkout por Gateway devuelve 409 `PRODUCT_UNAVAILABLE`; se asertan mensaje, `details`, `timestamp`, `path` y forma completa del cuerpo. El carrito se prepara en Mongo para pasar la validacion previa del endpoint de carrito. |
+| R8 | JWT invalido o ausente de punta a punta | CUMPLE | `api-gateway/scripts/compose-flow.e2e.mjs:174` | `npm run test:e2e:compose` | `/orders` devuelve 401 sin token y con `Bearer invalid.jwt.token`. |
+| R9 | Usuario suspendido/eliminado | CUMPLE | `api-gateway/scripts/compose-flow.e2e.mjs:289` | `npm run test:e2e:compose` | Se suspende en Mongo el usuario autenticado; el mismo JWT devuelve exactamente 403 `FORBIDDEN` al llamar `/orders`. Users no expone eliminacion de usuarios, por lo que no se probo borrado. |
+| R10 | Caida de Payments y recuperacion | CUMPLE | `api-gateway/scripts/compose-flow.e2e.mjs:451` | Configurar variables de reconciliacion como arriba; `npm run test:e2e:compose` | Se detiene `payments-service` durante checkout: 503, orden `PENDING_PAYMENT`, sin `paymentId`, reserva `RESERVED`. Tras `start`, el reconciliador cancela y devuelve el stock a 3. |
+| R11 | Caida de Catalog y recuperacion | PARCIAL | `api-gateway/scripts/compose-flow.e2e.mjs:500` | Con Compose activo: `npm run test:e2e:compose` | Se detiene `catalog-service` para el checkout: 503 `DEPENDENCY_UNAVAILABLE`, cero ordenes y cero reservas, stock intacto. Tras `start`, el mismo checkout se reintenta y paga; no hay orden pendiente que reconciliar porque Orders falla en la lectura previa al guardado. |
+| R12 | Ultima unidad con dos checkouts simultaneos | CUMPLE | `api-gateway/scripts/compose-flow.e2e.mjs:266` | `npm run test:e2e:compose` | Dos usuarios distintos, Gateway y stock 1: exactamente un 201 y un 409; el stock final es 0, nunca negativo. |
+| R13 | Misma Idempotency-Key en paralelo | CUMPLE | `api-gateway/scripts/compose-flow.e2e.mjs:236` | `npm run test:e2e:compose` | Dos solicitudes paralelas devuelven el mismo ID de orden; el estado HTTP admite 200 para replay y 201 para creacion. |
+| R14 | E2E feliz de Compose con cancelacion y restauracion | CUMPLE | `api-gateway/scripts/compose-flow.e2e.mjs:35` | `docker compose -f services/compose.yaml up -d --wait; cd api-gateway; npm run test:e2e:compose` | Registro, verificacion, login, carrito, pago aprobado y cancelacion pasan; el stock vuelve de 3 a 5. |
+| R15 | CI existente y que ejecuta | NO VERIFICADO | `.github/workflows/orders-closure.yml` | `git push -u origin feature/orders-cierre-100`; abrir PR a `main` y revisar Actions | El workflow local contiene lint/build/tests y Compose E2E. GitHub Actions no reporta ejecucion para esta rama; este cambio no se ha subido y no se afirma que CI pase. |
+| R16 | Secretos fuera del repo y `.env.example` actualizado | CUMPLE | `services/orders-service/.env.example:24`; `.gitignore` | `git check-ignore services/orders-service/.env; git ls-files services/orders-service/.env` | `.env` se ignora y no esta versionado; los valores de ejemplo son de desarrollo. |
+| R17 | README/Swagger y contratos/comandos de prueba actualizados | CUMPLE | `api-gateway/README.md:59`; `services/orders-service/README.md:50`; `services/orders-service/src/infrastructure/http/controllers/orders.controller.ts:140` | Revisar README y ejecutar `npm run test:e2e:compose` | README documenta escenarios, variables temporales y que Catalog no genera una orden reconciliable si falla en la lectura previa. Swagger documenta el callback interno. |
+| R18 | Request ID en logs (opcional) | PARCIAL | `services/orders-service/src/infrastructure/clients/request-id.context.ts:9`; `services/orders-service/src/application/use-cases/orders/reconcile-pending-orders.use-case.ts:90` | Ejecutar Compose y revisar `docker compose logs orders-service` | Los logs estructurados del reconciliador incluyen un `requestId` generado para cada ejecucion. No se verifico en vivo la propagacion de `x-request-id` en todos los logs HTTP. |
 
 ## Evidencia resumida de pruebas
 
-- Orders lint: OK.
-- Orders build: OK.
-- Orders unit: 7 archivos, 61 pruebas pasadas.
-- Orders e2e: 1 archivo, 6 pruebas pasadas.
-- Catalog lint: OK.
-- Catalog build: OK.
-- Catalog unit: 4 archivos, 15 pruebas pasadas.
-- Catalog e2e: 2 pruebas pasadas.
-- Gateway lint: OK.
-- Gateway build: OK.
-- Gateway unit: 3 archivos, 25 pruebas pasadas.
-- Gateway e2e: 1 archivo, 5 pruebas pasadas.
-- Docker Compose config: OK.
-- Docker Compose build: OK, las siete imagenes se construyeron.
-- Docker Compose up: 14 servicios/controles llegaron a `healthy/running`.
-- Compose E2E: PASS; flujo feliz y escenarios extendidos.
-- Docker Compose down sin `-v`: OK.
+- Orders: lint OK; build OK; unitarias 7 archivos / 62 pasadas; e2e 1 archivo / 6 pasadas.
+- Catalog: lint OK; build OK; unitarias 4 archivos / 15 pasadas; e2e 1 archivo / 2 pasadas.
+- Gateway: lint OK; build OK; unitarias 3 archivos / 25 pasadas; e2e 1 archivo / 5 pasadas.
+- Mongo claim/lease: 6 pruebas de `mongoose-repositories.spec.ts` pasadas contra MongoMemoryReplSet; una prueba nueva verifica dos claims concurrentes.
+- `docker compose config --quiet`: OK.
+- `docker compose build`: OK; construyo las siete imagenes.
+- `docker compose up -d --wait`: OK; los 14 servicios/controles quedaron healthy.
+- `npm run test:e2e:compose`: PASS; incluye R7, R9, R10, R11 parcial, R12 y R13.
+- `docker compose down` sin `-v`: OK; se quitaron contenedores/red y se conservaron los volumenes.
 
-## Advertencias
+## Cambios de aserciones y limites
 
-- R10 y R11 no fueron probados con parada real de contenedores en la verificacion final.
-- R12 usa concurrencia real de Mongo replica set en Catalog y no dos usuarios reales contra la ultima unidad via Compose.
-- El script marcado como 403 puede observar 401/403 segun la traduccion final de Users para una cuenta suspendida.
+- La comprobacion anterior del usuario suspendido aceptaba 401 o 403 y verificaba el login. Se sustituyo por el mismo JWT despues de suspender el usuario, con status exacto 403 y codigo `FORBIDDEN`.
+- Las solicitudes idempotentes aceptan 200 o 201 por la diferencia entre replay y creacion, pero ambas deben devolver el mismo ID.
+- R6 y R11 quedan parciales por las limitaciones descritas; no se presentan como flujos de reconciliacion completos.
+- El workflow no esta verificado en GitHub hasta que se ejecute sobre una rama subida.

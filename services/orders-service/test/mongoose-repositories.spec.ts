@@ -85,6 +85,40 @@ describe('Mongoose repositories against MongoDB replica set', () => {
     expect(await orderRepository.findByIdempotencyKey(userId, 'same-key')).not.toBeNull();
   });
 
+  it('solo permite que una instancia reclame una orden bajo lease', async () => {
+    const userId = new UserId('customer-reconciliation-lease');
+    const order = Order.createFromCart(
+      new OrderId('order-reconciliation-lease'),
+      cartFor(userId),
+    );
+    await orderRepository.save(order);
+    await orderModel.updateOne(
+      { _id: order.id.value },
+      { $set: { updatedAt: new Date(Date.now() - 60_000) } },
+    );
+
+    const secondRepository = new MongooseOrderRepository(
+      orderModel,
+      eventModel,
+      connection,
+    );
+    const claimArguments: [Date, number, number, Date] = [
+      new Date(Date.now() - 30_000),
+      10,
+      50,
+      new Date(Date.now() + 60_000),
+    ];
+    const [firstClaims, secondClaims] = await Promise.all([
+      orderRepository.claimForReconciliation(...claimArguments),
+      secondRepository.claimForReconciliation(...claimArguments),
+    ]);
+
+    expect(firstClaims.length + secondClaims.length).toBe(1);
+    expect(await orderModel.findById(order.id.value).lean()).toMatchObject({
+      reconciliationLockedUntil: expect.any(Date),
+    });
+  });
+
   it('deduplica eventId de pago con índice único y transacción', async () => {
     const userId = new UserId('customer-1');
     const order = Order.createFromCart(new OrderId('order-payment'), cartFor(userId));
