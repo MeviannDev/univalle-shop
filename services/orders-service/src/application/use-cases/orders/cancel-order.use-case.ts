@@ -41,11 +41,6 @@ export class CancelOrder {
       previousStatus === 'PAID' ||
       previousStatus === 'PROCESSING'
     ) {
-      order.markCompensationPending(
-        order.paymentId ? 'REFUND_AND_RELEASE' : 'RELEASE_RESERVATIONS',
-        'Compensación iniciada',
-      );
-      await callExternal('Persistencia de órdenes', () => this.orders.save(order));
       try {
         if (order.paymentId) {
           await callExternal('Pagos', () =>

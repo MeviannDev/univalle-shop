@@ -20,6 +20,7 @@ let orderId;
 let accessToken;
 let cancelled = false;
 let failure;
+const extraProductIds = [];
 
 try {
   const product = await requestJson(new URL('/products', catalogUrl), {
@@ -107,8 +108,137 @@ try {
   );
   assert.equal(productAfterCancel.stock, initialStock);
 
+  const missingId = '6b078342aade5ed8e5221cf1';
+  const missingProduct = await fetchStatus(
+    new URL(`/products/${missingId}`, catalogUrl),
+  );
+  assert.equal(missingProduct.status, 404);
+
+  const missingCallbackKey = await fetchStatus(
+    new URL(`/api/orders/order-unknown/payment-result`, new URL(process.env.ORDERS_URL ?? 'http://localhost:3001')),
+    { method: 'POST', body: { paymentId: 'payment-unknown', result: 'APPROVED', eventId: 'event-unknown' } },
+  );
+  assert.equal(missingCallbackKey.status, 401);
+  const invalidCallbackKey = await fetchStatus(
+    new URL(`/api/orders/order-unknown/payment-result`, new URL(process.env.ORDERS_URL ?? 'http://localhost:3001')),
+    {
+      method: 'POST',
+      headers: { 'x-internal-api-key': 'invalid-key' },
+      body: { paymentId: 'payment-unknown', result: 'APPROVED', eventId: 'event-unknown' },
+    },
+  );
+  assert.equal(invalidCallbackKey.status, 401);
+
+  assert.equal(
+    (await fetchStatus(new URL('/orders', gatewayUrl))).status,
+    401,
+  );
+  assert.equal(
+    (await fetchStatus(new URL('/orders', gatewayUrl), {
+      headers: { authorization: 'Bearer invalid.jwt.token' },
+    })).status,
+    401,
+  );
+  assert.equal(
+    (await fetchStatus(
+      new URL('/orders/order-unknown/payment-result', gatewayUrl),
+      { method: 'POST', body: {} },
+    )).status,
+    404,
+  );
+
+  const insufficientProduct = await requestJson(
+    new URL('/products', catalogUrl),
+    {
+      method: 'POST',
+      body: {
+        name: `Insufficient ${randomUUID()}`,
+        description: 'Disposable insufficient-stock test',
+        price: 100,
+        category: 'E2E',
+        images: [],
+        stock: 1,
+        active: true,
+      },
+    },
+  );
+  extraProductIds.push(insufficientProduct.id);
+  const insufficientCart = await fetchStatus(
+    new URL('/cart/items', gatewayUrl),
+    {
+      method: 'POST',
+      headers: authHeaders,
+      body: { productId: insufficientProduct.id, quantity: 2 },
+    },
+  );
+  assert.equal(insufficientCart.status, 409);
+
+  const concurrentProduct = await requestJson(
+    new URL('/products', catalogUrl),
+    {
+      method: 'POST',
+      body: {
+        name: `Concurrent ${randomUUID()}`,
+        description: 'Disposable concurrent checkout test',
+        price: 100,
+        category: 'E2E',
+        images: [],
+        stock: 1,
+        active: true,
+      },
+    },
+  );
+  extraProductIds.push(concurrentProduct.id);
+  await requestJson(new URL('/cart/items', gatewayUrl), {
+    method: 'POST',
+    headers: authHeaders,
+    body: { productId: concurrentProduct.id, quantity: 1 },
+  });
+  const concurrentKey = randomUUID();
+  const [firstConcurrent, secondConcurrent] = await Promise.all([
+    fetchStatus(new URL('/orders', gatewayUrl), {
+      method: 'POST',
+      headers: { ...authHeaders, 'idempotency-key': concurrentKey },
+      body: {},
+    }),
+    fetchStatus(new URL('/orders', gatewayUrl), {
+      method: 'POST',
+      headers: { ...authHeaders, 'idempotency-key': concurrentKey },
+      body: {},
+    }),
+  ]);
+  assert.ok([201, 200].includes(firstConcurrent.status));
+  assert.ok([201, 200].includes(secondConcurrent.status));
+  const firstConcurrentBody = JSON.parse(firstConcurrent.body);
+  const secondConcurrentBody = JSON.parse(secondConcurrent.body);
+  assert.equal(firstConcurrentBody.id, secondConcurrentBody.id);
+
+  execFileSync(
+    'docker',
+    [
+      'compose', '-f', composeFile, 'exec', '-T', 'mongodb-users',
+      'mongosh', 'univalle_users', '--quiet', '--eval',
+      `db.users.updateOne({ id: ${JSON.stringify(userId)} }, { $set: { status: 'SUSPENDED' } })`,
+    ],
+    { stdio: 'ignore' },
+  );
+  const suspendedLogin = await fetchStatus(new URL('/auth/login', gatewayUrl), {
+    method: 'POST',
+    body: { email, password },
+  });
+  assert.ok([401, 403].includes(suspendedLogin.status));
+  execFileSync(
+    'docker',
+    [
+      'compose', '-f', composeFile, 'exec', '-T', 'mongodb-users',
+      'mongosh', 'univalle_users', '--quiet', '--eval',
+      `db.users.updateOne({ id: ${JSON.stringify(userId)} }, { $set: { status: 'ACTIVE' } })`,
+    ],
+    { stdio: 'ignore' },
+  );
+
   console.log(
-    'Compose E2E passed: registration, verification, login, cart, checkout, payment approval, stock commit, and stock restoration.',
+    'Compose E2E passed: happy flow, callback blocking/API-key rejection, JWT rejection, 404 Catalog, stock 409, suspended-user 403, and stock restoration.',
   );
 } catch (error) {
   failure = error;
@@ -143,6 +273,22 @@ async function requestJson(url, { method = 'GET', headers = {}, body } = {}) {
     `${method} ${url} returned ${response.status}: ${text}`,
   );
   return result;
+}
+
+async function fetchStatus(url, { method = 'GET', headers = {}, body } = {}) {
+  const response = await fetch(url, {
+    method,
+    headers: {
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+      ...headers,
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  return {
+    status: response.status,
+    body: await response.text(),
+  };
 }
 
 async function waitForVerificationToken(recipient) {
@@ -201,6 +347,28 @@ async function cleanup() {
       cleanupErrors.push(error);
     }
   }
+  for (const extraProductId of extraProductIds) {
+    try {
+      execFileSync(
+        'docker',
+        [
+          'compose', '-f', composeFile, 'exec', '-T', 'mongodb-catalog',
+          'mongosh', 'univalle_catalog', '--quiet', '--eval',
+          `db.inventory_reservations.deleteMany({ productId: ${JSON.stringify(extraProductId)} });`,
+        ],
+        { stdio: 'ignore' },
+      );
+      const response = await fetch(
+        new URL(`/products/${encodeURIComponent(extraProductId)}`, catalogUrl),
+        { method: 'DELETE', signal: AbortSignal.timeout(10_000) },
+      );
+      if (!response.ok && response.status !== 404) {
+        cleanupErrors.push(new Error(`Could not delete test product: HTTP ${response.status}`));
+      }
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+  }
 
   try {
     const removeUser = userId
@@ -238,6 +406,17 @@ async function cleanup() {
           '--quiet',
           '--eval',
           `db.inventory_reservations.deleteMany({ productId: ${JSON.stringify(productId)} });`,
+        ],
+        { stdio: 'ignore' },
+      );
+    }
+    for (const extraProductId of extraProductIds) {
+      execFileSync(
+        'docker',
+        [
+          'compose', '-f', composeFile, 'exec', '-T', 'mongodb-catalog',
+          'mongosh', 'univalle_catalog', '--quiet', '--eval',
+          `db.inventory_reservations.deleteMany({ productId: ${JSON.stringify(extraProductId)} });`,
         ],
         { stdio: 'ignore' },
       );
