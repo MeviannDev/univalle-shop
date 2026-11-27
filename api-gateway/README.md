@@ -31,6 +31,11 @@ conservando el prefijo del servicio; por ejemplo, `GET /orders` llega a
 mediante el Gateway. Si el Gateway es el punto de entrada público, evita
 exponer directamente los servicios backend.
 
+`POST /orders/:id/payment-result` es un callback interno de Payments y no se
+publica desde el Gateway. Las solicitudes externas a esa ruta reciben `404`.
+Payments debe llamar directamente a `ORDERS_CALLBACK_BASE_URL` dentro de la
+red de Compose e incluir `X-Internal-Api-Key`.
+
 ## Docker Compose
 
 Desde la carpeta `services`, inicia el entorno completo con:

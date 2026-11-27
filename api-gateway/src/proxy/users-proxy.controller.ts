@@ -1,4 +1,4 @@
-import { All, Controller, Inject, Req, Res } from '@nestjs/common';
+import { All, Controller, Inject, NotFoundException, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { UsersProxyService } from './users-proxy.service.js';
@@ -35,6 +35,9 @@ export class UsersProxyController {
     @Req() request: Request,
     @Res() response: Response,
   ): Promise<void> {
+    if (/^\/orders\/[^/?]+\/payment-result(?:[/?]|$)/.test(request.originalUrl)) {
+      throw new NotFoundException('Route not found');
+    }
     await this.forward(
       request,
       response,

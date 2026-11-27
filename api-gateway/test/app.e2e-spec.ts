@@ -61,6 +61,19 @@ describe('API Gateway (e2e)', () => {
     ).toBe('checkout-key');
   });
 
+  it('blocks the payment-result callback through the Gateway', async () => {
+    await request(app.getHttpServer())
+      .post('/orders/order-1/payment-result')
+      .set('X-Internal-Api-Key', 'invalid-key')
+      .send({
+        paymentId: 'payment-1',
+        result: 'APPROVED',
+        eventId: 'event-1',
+      })
+      .expect(404);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   afterEach(async () => {
     await app.close();
     vi.unstubAllGlobals();
